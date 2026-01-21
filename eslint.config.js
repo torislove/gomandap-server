@@ -1,24 +1,19 @@
-const js = require('@eslint/js');
-const globals = require('globals');
+import js from "@eslint/js";
 
-module.exports = [
+export default [
+  {
+    ignores: ["node_modules/**", "dist/**", "build/**", "eslint.config.js"],
+  },
   js.configs.recommended,
   {
-    files: ['**/*.js'],
+    files: ["**/*.js"],
     languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'commonjs',
-      globals: {
-        ...globals.node,
-        ...globals.es2021,
-      },
+      ecmaVersion: "latest",
+      sourceType: "module",
     },
     rules: {
-      'no-unused-vars': 'warn',
-      'no-console': 'off', // Backend often uses console for logging
+      "no-unused-vars": "warn",
+      "no-console": "off",
     },
-  },
-  {
-    ignores: ['node_modules/', 'dist/'],
   },
 ];
