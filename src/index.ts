@@ -127,7 +127,32 @@ const filterDetails = (details: any, type: string) => {
 
 const app = new Hono();
 
-app.use('/*', cors());
+app.use('/*', cors({
+  origin: (origin) => {
+    const allowedOrigins = [
+      'https://snapadda.com',
+      'https://vendor.snapadda.com',
+      'https://admin.snapadda.com'
+    ];
+    
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return origin;
+    
+    // Allow allowed origins
+    if (allowedOrigins.includes(origin)) return origin;
+    
+    // Allow localhost for development
+    if (origin.startsWith('http://localhost')) return origin;
+    
+    // Block all other origins
+    return undefined;
+  },
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  exposeHeaders: ['Content-Length'],
+  maxAge: 600,
+  credentials: true,
+}));
 app.use('/uploads/*', serveStatic({ root: './' }));
 
 // Admin Routes
