@@ -1,6 +1,7 @@
 // @ts-ignore
 import NLP from 'node-nlp';
 const { NlpManager } = NLP;
+import mongoose from 'mongoose';
 import { Settings } from '../models/Settings.js';
 import { BotKnowledge } from '../models/BotKnowledge.js';
 
@@ -11,6 +12,15 @@ class BotService {
   constructor() {
     this.manager = new NlpManager({ languages: ['en', 'te', 'hi', 'ta', 'ml', 'pa'], forceNER: true });
     this.initialize();
+  }
+
+  private async waitForDbReady(timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (mongoose.connection.readyState === 1) return true;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return mongoose.connection.readyState === 1;
   }
 
   private async initialize() {
@@ -207,7 +217,10 @@ class BotService {
     this.manager.addDocument('en', 'call support', 'agent.contact');
 
     // --- Dynamic Knowledge from DB ---
-    await this.loadDynamicKnowledge();
+    const dbReady = await this.waitForDbReady(5000);
+    if (dbReady) {
+      await this.loadDynamicKnowledge();
+    }
 
     // Train the model
     await this.manager.train();
@@ -274,10 +287,18 @@ class BotService {
     // Only return answer if confidence is high enough
     if (response.intent !== 'None' && response.score > 0.5 && response.answer) {
       if (response.answer === '{{CONTACT_INFO}}') {
-        const settings = await Settings.findOne({ type: 'general' });
-        if (settings) {
-          return `You can reach us via:\n📧 Email: ${settings.supportEmail}\n📱 WhatsApp: ${settings.supportWhatsapp}\n📞 Phone: ${settings.supportPhone}\n\nI have also marked this ticket for human review.`;
-        } else {
+        try {
+          const dbReady = mongoose.connection.readyState === 1 ? true : await this.waitForDbReady(2000);
+          if (!dbReady) {
+            return 'You can reach our support team via email or phone. I have marked this ticket for review.';
+          }
+
+          const settings = await Settings.findOne({ type: 'general' });
+          if (settings) {
+            return `You can reach us via:\n📧 Email: ${settings.supportEmail}\n📱 WhatsApp: ${settings.supportWhatsapp}\n📞 Phone: ${settings.supportPhone}\n\nI have also marked this ticket for human review.`;
+          }
+          return 'You can reach our support team via email or phone. I have marked this ticket for review.';
+        } catch {
           return 'You can reach our support team via email or phone. I have marked this ticket for review.';
         }
       }

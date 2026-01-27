@@ -21,6 +21,9 @@ import { devStore, isDbConnected, setDbConnected } from './devStore.js';
 
 dotenv.config();
 
+mongoose.set('bufferCommands', false);
+mongoose.set('bufferTimeoutMS', 5000);
+
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -29,8 +32,8 @@ mongoose.connection.on('connected', () => {
   console.log('Mongoose connected');
   setDbConnected(true);
 });
-mongoose.connection.on('error', () => {
-  console.log('Mongoose connection error');
+mongoose.connection.on('error', (err) => {
+  console.log('Mongoose connection error', err instanceof Error ? err.message : err);
   setDbConnected(false);
 });
 mongoose.connection.on('disconnected', () => {
@@ -39,6 +42,22 @@ mongoose.connection.on('disconnected', () => {
 });
 
 const ensureDb = async () => {
+  const state = Number(mongoose.connection.readyState);
+  if (state === 1) {
+    if (!isDbConnected) setDbConnected(true);
+    return true;
+  }
+
+  if (state === 2) {
+    const start = Date.now();
+    while (Number(mongoose.connection.readyState) === 2 && Date.now() - start < 5000) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    const ready = Number(mongoose.connection.readyState) === 1;
+    setDbConnected(ready);
+    return ready;
+  }
+
   if (!isDbConnected) {
     try {
       await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/gomandap', { serverSelectionTimeoutMS: 5000 } as any);
@@ -163,6 +182,9 @@ app.post('/api/admin/login', async (c) => {
     return c.json({ success: false, error: 'Please provide username and password' }, 400);
   }
 
+  const dbOk = await ensureDb();
+  if (!dbOk) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
   const admin = await Admin.findOne({
     $or: [{ username }, { email: username }]
   });
@@ -221,6 +243,9 @@ app.get('/api/admin/me', async (c) => {
 
   const token = authHeader.split(' ')[1];
   try {
+    const dbOk = await ensureDb();
+    if (!dbOk) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
     const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
     const admin = await Admin.findById(decoded.id).select('-password');
     if (!admin) return c.json({ success: false, error: 'Admin not found' }, 404);
@@ -238,6 +263,9 @@ app.put('/api/admin/updatepassword', async (c) => {
   const token = authHeader.split(' ')[1];
 
   try {
+    const dbOk = await ensureDb();
+    if (!dbOk) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
     const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
     const admin = await Admin.findById(decoded.id);
     if (!admin) return c.json({ success: false, error: 'Admin not found' }, 404);
@@ -259,6 +287,9 @@ app.put('/api/admin/updatepassword', async (c) => {
 // Admin Image Upload
 app.post('/api/admin/upload', async (c) => {
   try {
+    const dbOk = await ensureDb();
+    if (!dbOk) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
     const body = await c.req.parseBody();
     const file = body['image'];
 
@@ -287,7 +318,7 @@ app.post('/api/admin/upload', async (c) => {
         const filePath = path.join(uploadDir, fileName);
         fs.writeFileSync(filePath, buffer);
 
-        const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
+        const imageUrl = `${new URL(c.req.url).origin}/uploads/${fileName}`;
         return c.json({ success: true, data: { imageUrl } });
       }
     }
@@ -307,6 +338,9 @@ app.put('/api/admin/profile', async (c) => {
   const { profilePicture } = await c.req.json();
 
   try {
+    const dbOk = await ensureDb();
+    if (!dbOk) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
     const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
     const admin = await Admin.findById(decoded.id);
 
@@ -760,6 +794,7 @@ app.get('/api/vendors/search', async (c) => {
     const lat = c.req.query('lat');
     const lon = c.req.query('lon');
     const radius = c.req.query('radius') || '50'; // km
+    const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '200', 10) || 200, 1), 500);
 
     const query: any = {};
 
@@ -778,23 +813,8 @@ app.get('/api/vendors/search', async (c) => {
     const maxPrice = c.req.query('maxPrice');
 
     if (minPrice || maxPrice) {
-      query.$or = [
-        // Match explicit number fields
-        {
-          minPrice: { $gte: Number(minPrice) || 0 },
-          ...(maxPrice ? { maxPrice: { $lte: Number(maxPrice) } } : {})
-        },
-        // Fallback for legacy data (optional, but good for transition)
-        // This is complex for mixed types, better to rely on script to migrate data first
-      ];
-
-      // Since $or is used, we need to merge with other fields carefully
-      // If other fields exist, use $and
-      if (Object.keys(query).length > 1) {
-        const { $or, ...rest } = query;
-        query.$and = [$or, rest];
-        delete query.$or;
-      }
+      query.minPrice = { $gte: Number(minPrice) || 0 };
+      if (maxPrice) query.maxPrice = { $lte: Number(maxPrice) };
     }
 
     const ok = await ensureDb();
@@ -803,7 +823,7 @@ app.get('/api/vendors/search', async (c) => {
     }
 
     // Sort by priority (desc) then createdAt (desc)
-    let vendors = await Vendor.find(query).sort({ priority: -1, createdAt: -1 });
+    let vendors = await Vendor.find(query).sort({ priority: -1, createdAt: -1 }).limit(limit).lean();
 
     // If coordinates provided, filter by distance and calculate distance for each vendor
     if (lat && lon) {
@@ -1419,7 +1439,7 @@ app.post('/api/vendors/upload', async (c) => {
         const filePath = path.join(uploadDir, fileName);
         fs.writeFileSync(filePath, buffer);
 
-        const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
+        const imageUrl = `${new URL(c.req.url).origin}/uploads/${fileName}`;
         return c.json({ success: true, data: { imageUrl } });
       }
     }
@@ -1625,6 +1645,9 @@ app.put('/api/chat/:id/status', async (c) => {
 
 app.get('/api/settings', async (c) => {
   try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
     let settings = await Settings.findOne({ type: 'general' });
     if (!settings) {
       settings = await Settings.create({ type: 'general' });
@@ -1640,6 +1663,9 @@ app.put('/api/settings', async (c) => {
   if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
 
   try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
     const token = authHeader.split(' ')[1];
     await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
 
