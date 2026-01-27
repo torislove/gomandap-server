@@ -5,8 +5,8 @@
   "main": "src/index.ts",
   "type": "module",
   "scripts": {
-    "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/dev-server.ts",
+    "dev": "tsx watch src/dev-server.ts",
     "lint": "eslint ."
   },
   "dependencies": {

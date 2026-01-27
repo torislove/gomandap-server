@@ -1,4 +1,3 @@
-import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1697,6 +1696,35 @@ app.put('/api/settings', async (c) => {
   }
 });
 
+app.get('/api/getThemeColors', async (c) => {
+  try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database unavailable' }, 503);
+    const settings = await Settings.findOne({ type: 'general' });
+    const primaryHex = settings?.cardTheme?.primaryColor || '#0EA5A1';
+    return c.json({
+      success: true,
+      data: {
+        background: '222 47% 11%',
+        foreground: '210 40% 98%',
+        primary: primaryHex,
+        secondary: '#F59E0B',
+        border: '217.2 32.6% 17.5%',
+        input: '217.2 32.6% 17.5%',
+        ring: '176 84% 32%',
+        card: '222 47% 11%',
+        cardForeground: '210 40% 98%',
+        muted: '217.2 32.6% 17.5%',
+        accent: '217.2 32.6% 17.5%',
+        popover: '222 47% 11%',
+        popoverForeground: '210 40% 98%'
+      }
+    });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to fetch theme' }, 500);
+  }
+});
+
 
 import { createWorker } from 'tesseract.js';
 import { BotKnowledge } from './models/BotKnowledge.js';
@@ -2047,10 +2075,4 @@ app.put('/api/admin/vendors/:id', async (c) => {
   }
 });
 
-const port = Number(process.env.PORT || 5000);
-console.log(`Server is running on port ${port}`);
-
-serve({
-  fetch: app.fetch,
-  port
-});
+export default app;
