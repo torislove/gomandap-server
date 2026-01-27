@@ -1,5 +1,6 @@
 // @ts-ignore
-import { NlpManager } from 'node-nlp';
+import NLP from 'node-nlp';
+const { NlpManager } = NLP;
 import { Settings } from '../models/Settings.js';
 import { BotKnowledge } from '../models/BotKnowledge.js';
 
@@ -25,7 +26,7 @@ class BotService {
     this.manager.addDocument('en', 'greetings', 'greetings.hello');
     this.manager.addDocument('en', 'yo', 'greetings.hello');
     this.manager.addDocument('en', 'what\'s up', 'greetings.hello');
-    
+
     // Initial multilingual greeting
     const multilingualGreeting = 'Hello! Please select your language / దయచేసి మీ భాషను ఎంచుకోండి / कृपया अपनी भाषा चुनें: English, Telugu, Hindi, Tamil, Malayalam, Punjabi';
     this.manager.addAnswer('en', 'greetings.hello', multilingualGreeting);
@@ -85,7 +86,7 @@ class BotService {
     this.manager.addDocument('en', 'change profile picture', 'profile.update');
     this.manager.addDocument('en', 'edit my details', 'profile.update');
     this.manager.addDocument('en', 'update business info', 'profile.update');
-    
+
     this.manager.addAnswer('en', 'profile.update', 'You can update your profile details and business information in the "Settings" tab of your dashboard.');
 
     // 3. Verification
@@ -159,29 +160,29 @@ class BotService {
     this.manager.addDocument('en', 'payment release', 'tc.escrow');
     this.manager.addDocument('en', 'when do i get paid', 'tc.escrow');
     this.manager.addDocument('en', 'milestone payments', 'tc.escrow');
-    
+
     this.manager.addAnswer('en', 'tc.escrow', 'Payments are secure in our Escrow system and released based on milestones (e.g., 20% on booking, 50% on start, 30% on completion).');
 
     this.manager.addDocument('en', 'gst compliance', 'tc.gst');
     this.manager.addDocument('en', 'tax', 'tc.gst');
     this.manager.addDocument('en', 'invoice', 'tc.gst');
-    
+
     this.manager.addAnswer('en', 'tc.gst', 'Vendors are responsible for collecting and remitting GST. Split invoicing is used: you invoice for service, GoMandap invoices for platform fees.');
 
     this.manager.addDocument('en', 'platform fee', 'tc.fees');
     this.manager.addDocument('en', 'how much does gomandap charge', 'tc.fees');
     this.manager.addDocument('en', 'annual fee', 'tc.fees');
-    
+
     this.manager.addAnswer('en', 'tc.fees', 'A nominal fee of ₹500/year applies only after you start acquiring clients. It is deducted from your first payout.');
 
     this.manager.addDocument('en', 'emi', 'tc.emi');
     this.manager.addDocument('en', 'financing', 'tc.emi');
-    
+
     this.manager.addAnswer('en', 'tc.emi', 'We offer EMI to clients via partners. You still receive full payment as per the escrow schedule, regardless of the client\'s EMI tenure.');
 
     this.manager.addDocument('en', 'cancellation policy', 'tc.cancel');
     this.manager.addDocument('en', 'refund', 'tc.cancel');
-    
+
     this.manager.addAnswer('en', 'tc.cancel', 'Cancellations follow the policy you selected (Strict/Flexible). Platform fees are non-refundable once booked.');
 
     // 11. Onboarding & Vendor Contact
@@ -193,7 +194,7 @@ class BotService {
     this.manager.addDocument('en', 'process to join', 'vendor.onboarding');
     this.manager.addDocument('en', 'steps to sign up', 'vendor.onboarding');
     this.manager.addDocument('en', 'what do i need to sign up', 'vendor.onboarding');
-    
+
     this.manager.addAnswer('en', 'vendor.onboarding', 'Joining GoMandap is easy! Just click "Get Started Free" on the homepage, sign up with your email or Google, and complete the 4-step profile setup (Business Details, Banking, Services, Photos).');
 
     this.manager.addDocument('en', 'vendor support number', 'agent.contact');
@@ -217,44 +218,44 @@ class BotService {
 
   private async loadDynamicKnowledge() {
     try {
-        const knowledge = await BotKnowledge.find({});
-        knowledge.forEach((item: any) => {
-            // Check for 'manual' type which has title/content instead of question/answer
-            if (item.sourceType === 'manual' && item.title && item.content) {
-                const intent = `manual.${item._id}`;
-                // Add title as a document
-                this.manager.addDocument('en', item.title.toLowerCase(), intent);
-                // Also add common variations based on tags if available
-                if (item.tags && Array.isArray(item.tags)) {
-                    const tagStr = item.tags.join(' ');
-                    this.manager.addDocument('en', tagStr, intent);
-                    this.manager.addDocument('en', `about ${item.title.toLowerCase()}`, intent);
-                    this.manager.addDocument('en', `what is ${item.title.toLowerCase()}`, intent);
-                }
-                this.manager.addAnswer('en', intent, item.content);
-            } 
-            // Handle legacy Q&A format
-            else if (item.question && item.answer) {
-                const intent = `dynamic.${item._id}`;
-                this.manager.addDocument('en', item.question.toLowerCase(), intent);
-                this.manager.addAnswer('en', intent, item.answer);
-            }
-        });
-        console.log(`Loaded ${knowledge.length} dynamic training items.`);
+      const knowledge = await BotKnowledge.find({});
+      knowledge.forEach((item: any) => {
+        // Check for 'manual' type which has title/content instead of question/answer
+        if (item.sourceType === 'manual' && item.title && item.content) {
+          const intent = `manual.${item._id}`;
+          // Add title as a document
+          this.manager.addDocument('en', item.title.toLowerCase(), intent);
+          // Also add common variations based on tags if available
+          if (item.tags && Array.isArray(item.tags)) {
+            const tagStr = item.tags.join(' ');
+            this.manager.addDocument('en', tagStr, intent);
+            this.manager.addDocument('en', `about ${item.title.toLowerCase()}`, intent);
+            this.manager.addDocument('en', `what is ${item.title.toLowerCase()}`, intent);
+          }
+          this.manager.addAnswer('en', intent, item.content);
+        }
+        // Handle legacy Q&A format
+        else if (item.question && item.answer) {
+          const intent = `dynamic.${item._id}`;
+          this.manager.addDocument('en', item.question.toLowerCase(), intent);
+          this.manager.addAnswer('en', intent, item.answer);
+        }
+      });
+      console.log(`Loaded ${knowledge.length} dynamic training items.`);
     } catch (error) {
-        console.error('Error loading dynamic bot knowledge:', error);
+      console.error('Error loading dynamic bot knowledge:', error);
     }
   }
 
-  public async addKnowledge(question: string, answer: string) {
+  public async addKnowledge(question: string, answer: string, targetAudience: 'client' | 'vendor' | 'general' = 'general') {
     try {
-        const newItem = await BotKnowledge.create({ question, answer });
-        const intent = `dynamic.${newItem._id}`;
-        this.manager.addDocument('en', question.toLowerCase(), intent);
-        this.manager.addAnswer('en', intent, answer);
-        return newItem;
+      const newItem = await BotKnowledge.create({ question, answer, targetAudience });
+      const intent = `dynamic.${newItem._id}`;
+      this.manager.addDocument('en', question.toLowerCase(), intent);
+      this.manager.addAnswer('en', intent, answer);
+      return newItem;
     } catch (error) {
-        throw error;
+      throw error;
     }
   }
 
@@ -265,21 +266,21 @@ class BotService {
 
   public async processMessage(text: string): Promise<string | null> {
     if (!this.isTrained) {
-        await this.initialize();
+      await this.initialize();
     }
     // Auto-detect language
     const response = await this.manager.process(text);
-    
+
     // Only return answer if confidence is high enough
     if (response.intent !== 'None' && response.score > 0.5 && response.answer) {
-        if (response.answer === '{{CONTACT_INFO}}') {
-            const settings = await Settings.findOne({ type: 'general' });
-            if (settings) {
-                return `You can reach us via:\n📧 Email: ${settings.supportEmail}\n📱 WhatsApp: ${settings.supportWhatsapp}\n📞 Phone: ${settings.supportPhone}\n\nI have also marked this ticket for human review.`;
-            } else {
-                return 'You can reach our support team via email or phone. I have marked this ticket for review.';
-            }
+      if (response.answer === '{{CONTACT_INFO}}') {
+        const settings = await Settings.findOne({ type: 'general' });
+        if (settings) {
+          return `You can reach us via:\n📧 Email: ${settings.supportEmail}\n📱 WhatsApp: ${settings.supportWhatsapp}\n📞 Phone: ${settings.supportPhone}\n\nI have also marked this ticket for human review.`;
+        } else {
+          return 'You can reach our support team via email or phone. I have marked this ticket for review.';
         }
+      }
       return response.answer;
     }
     return null;

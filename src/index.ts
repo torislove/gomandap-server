@@ -8,6 +8,7 @@ import { sign, verify } from 'hono/jwt';
 import mongoose from 'mongoose';
 import { v2 as cloudinary } from 'cloudinary';
 import { Vendor } from './models/Vendor.js';
+import { Client } from './models/Client.js';
 import { Admin } from './models/Admin.js';
 import { Notification } from './models/Notification.js';
 import { Ticket } from './models/Ticket.js';
@@ -66,7 +67,7 @@ if (!fs.existsSync(uploadDir)) {
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/gomandap', { serverSelectionTimeoutMS: 5000 } as any)
-  .then(() => { 
+  .then(() => {
     console.log('MongoDB Connected');
     setDbConnected(true);
   })
@@ -76,38 +77,38 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/gomandap', 
   });
 
 // Configure Cloudinary
-cloudinary.config({ 
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
-  api_key: process.env.CLOUDINARY_API_KEY, 
-  api_secret: process.env.CLOUDINARY_API_SECRET 
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 const ALLOWED_FIELDS = {
   common: ['pricingPackages', 'photos', 'advancePayment', 'cancellationPolicy', 'minPrice', 'maxPrice'],
   mandap: [
-    'capacity', 'selectedServices', 'occasions', 'venueType', 
-    'airConditioning', 'seatingCapacity', 'floatingCapacity', 'diningCapacity', 
-    'bridalSuite', 'guestRooms', 'dormitory', 'roomAmenities', 'cateringPolicy', 
-    'foodType', 'kitchenFacilities', 'parkingCar', 'parkingBike', 'valetParking', 
-    'powerBackup', 'electricityCharges', 'lift', 'wheelchair', 'avEquipment', 
-    'safetyFeatures', 'decorPolicy', 'havan', 'firecrackers', 'lateNightMusic', 
-    'overnightWedding', 'alcoholPolicy', 'perPlateVeg', 'perPlateNonVeg', 
+    'capacity', 'selectedServices', 'occasions', 'venueType',
+    'airConditioning', 'seatingCapacity', 'floatingCapacity', 'diningCapacity',
+    'bridalSuite', 'guestRooms', 'dormitory', 'roomAmenities', 'cateringPolicy',
+    'foodType', 'kitchenFacilities', 'parkingCar', 'parkingBike', 'valetParking',
+    'powerBackup', 'electricityCharges', 'lift', 'wheelchair', 'avEquipment',
+    'safetyFeatures', 'decorPolicy', 'havan', 'firecrackers', 'lateNightMusic',
+    'overnightWedding', 'alcoholPolicy', 'perPlateVeg', 'perPlateNonVeg',
     'entertainmentName', 'miscellaneous', 'entertainmentSupport'
   ],
   catering: [
-    'cuisines', 'dietaryOptions', 'serviceStyle', 'liveCounters', 'liveCounterItems', 
+    'cuisines', 'dietaryOptions', 'serviceStyle', 'liveCounters', 'liveCounterItems',
     'logistics', 'minGuestCount', 'fssaiLicense', 'perPlateVeg', 'perPlateNonVeg'
   ],
   decor: [
-    'decorThemes', 'decorOfferings', 'entertainmentServices', 'designVisualization', 
+    'decorThemes', 'decorOfferings', 'entertainmentServices', 'designVisualization',
     'customizationLevel', 'inventory'
   ],
   entertainment: [
-    'teamSize', 'performanceDuration', 'performanceType', 'providedEquipment', 
+    'teamSize', 'performanceDuration', 'performanceType', 'providedEquipment',
     'travelOutstation', 'travelExpenses', 'stayRequirement', 'selectedServices'
   ],
   photography: [
-    'photographyStyles', 'eventTypes', 'deliverables', 'rawFootage', 'equipment', 
+    'photographyStyles', 'eventTypes', 'deliverables', 'rawFootage', 'equipment',
     'startingPrice'
   ]
 };
@@ -137,7 +138,9 @@ app.post('/api/admin/login', async (c) => {
     return c.json({ success: false, error: 'Please provide username and password' }, 400);
   }
 
-  const admin = await Admin.findOne({ username });
+  const admin = await Admin.findOne({
+    $or: [{ username }, { email: username }]
+  });
 
   if (!admin) {
     return c.json({ success: false, error: 'Invalid credentials' }, 401);
@@ -167,7 +170,7 @@ app.post('/api/admin/create', async (c) => {
   if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
 
   const { username, email, password } = await c.req.json();
-  
+
   try {
     const token = authHeader.split(' ')[1];
     await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
@@ -203,28 +206,28 @@ app.get('/api/admin/me', async (c) => {
 });
 
 app.put('/api/admin/updatepassword', async (c) => {
-    const authHeader = c.req.header('Authorization');
-    if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-    
-    const { currentPassword, newPassword } = await c.req.json();
-    const token = authHeader.split(' ')[1];
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
 
-    try {
-        const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
-        const admin = await Admin.findById(decoded.id);
-        if (!admin) return c.json({ success: false, error: 'Admin not found' }, 404);
+  const { currentPassword, newPassword } = await c.req.json();
+  const token = authHeader.split(' ')[1];
 
-        const isMatch = await bcrypt.compare(currentPassword, admin.password as string);
-        if (!isMatch) return c.json({ success: false, error: 'Incorrect current password' }, 400);
+  try {
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const admin = await Admin.findById(decoded.id);
+    if (!admin) return c.json({ success: false, error: 'Admin not found' }, 404);
 
-        const salt = await bcrypt.genSalt(10);
-        admin.password = await bcrypt.hash(newPassword, salt);
-        await admin.save();
+    const isMatch = await bcrypt.compare(currentPassword, admin.password as string);
+    if (!isMatch) return c.json({ success: false, error: 'Incorrect current password' }, 400);
 
-        return c.json({ success: true, message: 'Password updated successfully' });
-    } catch (err) {
-        return c.json({ success: false, error: 'Error updating password' }, 500);
-    }
+    const salt = await bcrypt.genSalt(10);
+    admin.password = await bcrypt.hash(newPassword, salt);
+    await admin.save();
+
+    return c.json({ success: true, message: 'Password updated successfully' });
+  } catch (err) {
+    return c.json({ success: false, error: 'Error updating password' }, 500);
+  }
 });
 
 
@@ -235,35 +238,35 @@ app.post('/api/admin/upload', async (c) => {
     const file = body['image'];
 
     if (file && file instanceof File) {
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        
-        // Try Cloudinary first
-        try {
-            const result: any = await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'admins' },
-                    (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
-                    }
-                );
-                uploadStream.end(buffer);
-            });
-            return c.json({ success: true, data: { imageUrl: result.secure_url } });
-        } catch (cloudError) {
-            console.error('Cloudinary failed, falling back to local storage:', cloudError);
-            
-            // Fallback to Local Storage
-            const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
-            const filePath = path.join(uploadDir, fileName);
-            fs.writeFileSync(filePath, buffer);
-            
-            const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
-            return c.json({ success: true, data: { imageUrl } });
-        }
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Try Cloudinary first
+      try {
+        const result: any = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: 'admins' },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          uploadStream.end(buffer);
+        });
+        return c.json({ success: true, data: { imageUrl: result.secure_url } });
+      } catch (cloudError) {
+        console.error('Cloudinary failed, falling back to local storage:', cloudError);
+
+        // Fallback to Local Storage
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+        const filePath = path.join(uploadDir, fileName);
+        fs.writeFileSync(filePath, buffer);
+
+        const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
+        return c.json({ success: true, data: { imageUrl } });
+      }
     }
-    
+
     return c.json({ success: false, error: 'No image file provided' }, 400);
   } catch (error) {
     console.error('Admin Upload Error:', error);
@@ -274,18 +277,18 @@ app.post('/api/admin/upload', async (c) => {
 app.put('/api/admin/profile', async (c) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-  
+
   const token = authHeader.split(' ')[1];
   const { profilePicture } = await c.req.json();
 
   try {
     const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
     const admin = await Admin.findById(decoded.id);
-    
+
     if (!admin) return c.json({ success: false, error: 'Admin not found' }, 404);
 
     if (profilePicture) admin.profilePicture = profilePicture;
-    
+
     await admin.save();
 
     return c.json({ success: true, data: admin });
@@ -294,9 +297,259 @@ app.put('/api/admin/profile', async (c) => {
   }
 });
 
+// Client Routes
+
+// Client Auth: Signup
+app.post('/api/auth/client/signup', async (c) => {
+  const { name, email, phone, password } = await c.req.json();
+
+  try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database not connected' }, 500);
+
+    const existing = await Client.findOne({ email });
+    if (existing) {
+      return c.json({ success: false, error: 'Email already registered' }, 400);
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const client = await Client.create({
+      displayName: name,
+      email,
+      password: hashedPassword,
+      // phone is not in schema yet, adding it to logic if needed or ignoring
+      loginHistory: [{
+        timestamp: new Date(),
+        ip: c.req.header('x-forwarded-for') || 'unknown',
+        userAgent: c.req.header('user-agent')
+      }]
+    });
+
+    const token = await sign({ id: client._id }, process.env.JWT_SECRET || 'secret');
+
+    return c.json({
+      success: true,
+      token,
+      user: {
+        id: client._id,
+        name: client.displayName,
+        email: client.email
+      }
+    });
+  } catch (err) {
+    console.error('Client Signup Error:', err);
+    return c.json({ success: false, error: 'Signup failed' }, 500);
+  }
+});
+
+// Client Auth: Login
+app.post('/api/auth/client/login', async (c) => {
+  const { email, password } = await c.req.json();
+
+  try {
+    if (!isDbConnected && !process.env.MONGO_URI) {
+      // Dev mode fallback if needed, but for now assuming DB
+    }
+
+    const client = await Client.findOne({ email });
+    if (!client || !client.password) {
+      return c.json({ success: false, error: 'Invalid credentials' }, 401);
+    }
+
+    const isMatch = await bcrypt.compare(password, client.password);
+    if (!isMatch) {
+      return c.json({ success: false, error: 'Invalid credentials' }, 401);
+    }
+
+    const token = await sign({ id: client._id }, process.env.JWT_SECRET || 'secret');
+
+    // Update login history
+    await Client.updateOne({ _id: client._id }, {
+      $set: { lastLogin: new Date() },
+      $push: {
+        loginHistory: {
+          $each: [{
+            timestamp: new Date(),
+            ip: c.req.header('x-forwarded-for') || 'unknown',
+            userAgent: c.req.header('user-agent')
+          }],
+          $slice: -50
+        }
+      }
+    });
+
+    return c.json({
+      success: true,
+      token,
+      user: {
+        id: client._id,
+        name: client.displayName,
+        email: client.email
+      }
+    });
+  } catch (err) {
+    console.error('Client Login Error:', err);
+    return c.json({ success: false, error: 'Login failed' }, 500);
+  }
+});
+
+app.post('/api/clients/sync', async (c) => {
+  const body = await c.req.json();
+  const { firebaseUid, email, displayName, photoURL, ip } = body;
+
+  try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database not connected' }, 500);
+
+    let client = await Client.findOne({ firebaseUid });
+
+    const updateData: any = {
+      email,
+      displayName,
+      photoURL,
+      lastLogin: new Date(),
+      lastLoginIp: ip || c.req.header('x-forwarded-for') || 'unknown',
+    };
+
+    if (client) {
+      // Push to login history (keep last 50)
+      await Client.updateOne(
+        { firebaseUid },
+        {
+          $set: updateData,
+          $push: {
+            loginHistory: {
+              $each: [{
+                timestamp: new Date(),
+                ip: updateData.lastLoginIp,
+                userAgent: c.req.header('user-agent')
+              }],
+              $slice: -50
+            }
+          }
+        }
+      );
+      client = await Client.findOne({ firebaseUid });
+    } else {
+      client = await Client.create({
+        firebaseUid,
+        ...updateData,
+        loginHistory: [{
+          timestamp: new Date(),
+          ip: updateData.lastLoginIp,
+          userAgent: c.req.header('user-agent')
+        }]
+      });
+    }
+
+    return c.json({ success: true, data: client });
+  } catch (err) {
+    console.error('Client Sync Error:', err);
+    return c.json({ success: false, error: 'Sync failed' }, 500);
+  }
+});
+
+// Admin Stats & Clients
+app.get('/api/admin/clients', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const clients = await Client.find().sort({ lastLogin: -1 });
+    return c.json({ success: true, data: clients });
+  } catch (err) {
+    return c.json({ success: false, error: 'Error fetching clients' }, 500);
+  }
+});
+
+// Client Favorites & Shortlist
+app.post('/api/clients/favorites/:vendorId', async (c) => {
+  const body = await c.req.json();
+  const { firebaseUid } = body; // Assuming passed from frontend context or Auth header if migrated
+
+  // Note: For now using firebaseUid from body to identify client as per existing pattern
+  // Ideally should be from Auth token
+
+  try {
+    const client = await Client.findOne({ firebaseUid });
+    if (!client) return c.json({ success: false, error: 'Client not found' }, 404);
+
+    const vendorId = c.req.param('vendorId');
+    if (!client.favorites.includes(vendorId as any)) {
+      client.favorites.push(vendorId as any);
+      await client.save();
+    }
+
+    return c.json({ success: true, data: client.favorites });
+  } catch (err) {
+    return c.json({ success: false, error: 'Error adding favorite' }, 500);
+  }
+});
+
+app.delete('/api/clients/favorites/:vendorId', async (c) => {
+  const body = await c.req.json(); // Need firebaseUid
+  const { firebaseUid } = body;
+
+  try {
+    const client = await Client.findOne({ firebaseUid });
+    if (!client) return c.json({ success: false, error: 'Client not found' }, 404);
+
+    const vendorId = c.req.param('vendorId');
+    client.favorites = client.favorites.filter(id => id.toString() !== vendorId);
+    await client.save();
+
+    return c.json({ success: true, data: client.favorites });
+  } catch (err) {
+    return c.json({ success: false, error: 'Error removing favorite' }, 500);
+  }
+});
+
+app.get('/api/clients/:uid/favorites', async (c) => {
+  const uid = c.req.param('uid');
+  try {
+    const client = await Client.findOne({ firebaseUid: uid }).populate('favorites');
+    if (!client) return c.json({ success: false, error: 'Client not found' }, 404);
+    return c.json({ success: true, data: client.favorites });
+  } catch (err) {
+    return c.json({ success: false, error: 'Error fetching favorites' }, 500);
+  }
+});
+
+app.get('/api/admin/stats', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const totalVendors = await Vendor.countDocuments({});
+    const verifiedVendors = await Vendor.countDocuments({ isVerified: true });
+    const totalClients = await Client.countDocuments({});
+    const activeClientsToday = await Client.countDocuments({
+      lastLogin: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        vendors: { total: totalVendors, verified: verifiedVendors },
+        clients: { total: totalClients, activeToday: activeClientsToday }
+      }
+    });
+  } catch (err) {
+    return c.json({ success: false, error: 'Error fetching stats' }, 500);
+  }
+});
+
 // Vendor Routes
 app.post('/api/vendors/signup', async (c) => {
-  const { fullName, email, password, phone, businessName, vendorType } = await c.req.json();
+  const { fullName, email, password, phone, businessName, vendorType, whatsappNumber, additionalPhones } = await c.req.json();
 
   try {
     const ok = await ensureDb();
@@ -312,6 +565,8 @@ app.post('/api/vendors/signup', async (c) => {
       email,
       password: hashedPassword,
       phone,
+      additionalPhones: additionalPhones || [],
+      whatsappNumber: whatsappNumber || '',
       businessName,
       vendorType,
       onboardingCompleted: false
@@ -365,7 +620,7 @@ app.post('/api/vendors/google', async (c) => {
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    
+
     if (!payload) return c.json({ success: false, error: 'Invalid Google Token' }, 400);
 
     const { email, name, sub, picture } = payload;
@@ -373,7 +628,7 @@ app.post('/api/vendors/google', async (c) => {
     const nameStr = name || emailStr;
     const subStr = sub || '';
     const pictureStr = picture || '';
-    
+
     if (!isDbConnected) {
       let vendor = devStore.findByEmail(emailStr);
       if (!vendor) {
@@ -406,6 +661,57 @@ app.post('/api/vendors/google', async (c) => {
   }
 });
 
+// Update Vendor Profile (with coordinate extraction from mapsLink)
+app.put('/api/vendors/profile', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const vendorId = decoded.id;
+
+    const body = await c.req.json();
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) return c.json({ success: false, error: 'Vendor not found' }, 404);
+
+    // If mapsLink is provided, extract coordinates
+    if (body.mapsLink && body.mapsLink !== vendor.mapsLink) {
+      const coords = extractCoordinatesFromUrl(body.mapsLink);
+      if (coords) {
+        body.coordinates = { lat: coords.lat, lon: coords.lon };
+        console.log(`Extracted coordinates from mapsLink: ${coords.lat}, ${coords.lon}`);
+      }
+    }
+
+    // Update vendor fields
+    Object.keys(body).forEach(key => {
+      (vendor as any)[key] = body[key];
+    });
+
+    await vendor.save();
+    return c.json({ success: true, data: vendor });
+  } catch (err) {
+    console.error('Vendor profile update error:', err);
+    return c.json({ success: false, error: 'Failed to update profile' }, 500);
+  }
+});
+
+app.get('/api/vendors/me', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const vendor = await Vendor.findById(decoded.id).select('-password');
+    if (!vendor) return c.json({ success: false, error: 'Vendor not found' }, 404);
+    return c.json({ success: true, data: vendor });
+  } catch (err) {
+    return c.json({ success: false, error: 'Invalid token' }, 401);
+  }
+});
+
 app.get('/api/vendors', async (c) => {
   try {
     if (!isDbConnected) {
@@ -419,6 +725,376 @@ app.get('/api/vendors', async (c) => {
     return c.json({ success: false, error: 'Error fetching vendors' }, 500);
   }
 });
+
+// Search Vendors with filters
+app.get('/api/vendors/search', async (c) => {
+  try {
+    const city = c.req.query('city');
+    const vendorType = c.req.query('vendorType');
+    const onboardingCompleted = c.req.query('onboardingCompleted');
+    const lat = c.req.query('lat');
+    const lon = c.req.query('lon');
+    const radius = c.req.query('radius') || '50'; // km
+
+    const query: any = {};
+
+    if (city) {
+      query.city = { $regex: new RegExp(city, 'i') };
+    }
+    if (vendorType) {
+      query.vendorType = { $regex: new RegExp(vendorType, 'i') };
+    }
+    if (onboardingCompleted === 'true') {
+      query.onboardingCompleted = true;
+    }
+
+    // Price Filtering
+    const minPrice = c.req.query('minPrice');
+    const maxPrice = c.req.query('maxPrice');
+
+    if (minPrice || maxPrice) {
+      query.$or = [
+        // Match explicit number fields
+        {
+          minPrice: { $gte: Number(minPrice) || 0 },
+          ...(maxPrice ? { maxPrice: { $lte: Number(maxPrice) } } : {})
+        },
+        // Fallback for legacy data (optional, but good for transition)
+        // This is complex for mixed types, better to rely on script to migrate data first
+      ];
+
+      // Since $or is used, we need to merge with other fields carefully
+      // If other fields exist, use $and
+      if (Object.keys(query).length > 1) {
+        const { $or, ...rest } = query;
+        query.$and = [$or, rest];
+        delete query.$or;
+      }
+    }
+
+    const ok = await ensureDb();
+    if (!ok) {
+      return c.json({ success: true, count: 0, data: [] });
+    }
+
+    // Sort by priority (desc) then createdAt (desc)
+    let vendors = await Vendor.find(query).sort({ priority: -1, createdAt: -1 });
+
+    // If coordinates provided, filter by distance and calculate distance for each vendor
+    if (lat && lon) {
+      const userLat = parseFloat(lat);
+      const userLon = parseFloat(lon);
+      const maxRadius = parseFloat(radius);
+
+      const vendorsWithDistance = vendors
+        .map((v: any) => {
+          const vendorObj = v.toObject ? v.toObject() : v;
+          if (vendorObj.coordinates?.lat && vendorObj.coordinates?.lon) {
+            const dist = haversineDistance(userLat, userLon, vendorObj.coordinates.lat, vendorObj.coordinates.lon);
+            vendorObj.distance = Math.round(dist * 10) / 10; // Round to 1 decimal
+            return { ...vendorObj, distance: vendorObj.distance };
+          }
+          vendorObj.distance = null;
+          return vendorObj;
+        })
+        .filter((v: any) => {
+          if (v.distance !== null) {
+            return v.distance <= maxRadius;
+          }
+          return true; // Include vendors without coordinates
+        })
+        .sort((a: any, b: any) => {
+          // Primary Sort: Priority (High to Low)
+          if ((b.priority || 0) !== (a.priority || 0)) {
+            return (b.priority || 0) - (a.priority || 0);
+          }
+          // Secondary Sort: Distance (Nearest first)
+          if (a.distance === null) return 1;
+          if (b.distance === null) return -1;
+          return a.distance - b.distance;
+        });
+
+      return c.json({ success: true, count: vendorsWithDistance.length, data: vendorsWithDistance });
+    }
+
+    return c.json({ success: true, count: vendors.length, data: vendors });
+  } catch (err) {
+    console.error('Search vendors error:', err);
+    return c.json({ success: false, error: 'Error searching vendors' }, 500);
+  }
+});
+
+
+// Helper: Haversine distance in km
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Helper: Extract coordinates from Google Maps URL
+function extractCoordinatesFromUrl(url: string): { lat: number; lon: number } | null {
+  try {
+    if (!url) return null;
+
+    let lat: number | null = null;
+    let lon: number | null = null;
+
+    // 1. Coordinates in path (@lat,lon)
+    const atMatch = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (atMatch) {
+      lat = parseFloat(atMatch[1]);
+      lon = parseFloat(atMatch[2]);
+    }
+
+    // 2. Query params (?q=lat,lon or ?ll=lat,lon)
+    if (!lat && !lon) {
+      const qMatch = url.match(/[?&](?:q|ll)=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (qMatch) {
+        lat = parseFloat(qMatch[1]);
+        lon = parseFloat(qMatch[2]);
+      }
+    }
+
+    // 3. Google Maps short URLs with !3d (latitude) and !4d (longitude)
+    if (!lat && !lon) {
+      const dataMatch = url.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+      if (dataMatch) {
+        lat = parseFloat(dataMatch[1]);
+        lon = parseFloat(dataMatch[2]);
+      }
+    }
+
+    // 4. Place format: /place/.../@lat,lon
+    if (!lat && !lon) {
+      const placeMatch = url.match(/\/place\/[^/]+\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (placeMatch) {
+        lat = parseFloat(placeMatch[1]);
+        lon = parseFloat(placeMatch[2]);
+      }
+    }
+
+    // Validate coordinates are in valid ranges
+    if (lat !== null && lon !== null) {
+      // Latitude must be between -90 and 90
+      // Longitude must be between -180 and 180
+      if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+        console.log(`✓ Extracted valid coordinates: lat=${lat}, lon=${lon} from ${url.substring(0, 50)}...`);
+        return { lat, lon };
+      } else {
+        console.warn(`⚠ Invalid coordinate ranges detected: lat=${lat}, lon=${lon}. Possible lat/lon swap?`);
+
+        // Check if swapping would make them valid (catch potential swap errors)
+        if (lon >= -90 && lon <= 90 && lat >= -180 && lat <= 180) {
+          console.warn(`⚠ Swapping lat/lon to correct values: lat=${lon}, lon=${lat}`);
+          return { lat: lon, lon: lat };
+        }
+      }
+    }
+
+    return null;
+  } catch (e) {
+    console.error('Coordinate extraction error:', e);
+    return null;
+  }
+}
+
+// Seed all vendor categories around Pune (within 50km)
+app.post('/api/vendors/seed/pune-all', async (c) => {
+  try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database not connected' }, 500);
+
+    // Pune center: 18.5204, 73.8567
+    // Areas within 50km of Pune
+    const puneAreas = [
+      { name: 'Pune Central', lat: 18.5204, lon: 73.8567 },
+      { name: 'Kothrud', lat: 18.5074, lon: 73.8077 },
+      { name: 'Hinjewadi', lat: 18.5912, lon: 73.7388 },
+      { name: 'Wakad', lat: 18.5989, lon: 73.7611 },
+      { name: 'Baner', lat: 18.5596, lon: 73.7871 },
+      { name: 'Hadapsar', lat: 18.5089, lon: 73.9260 },
+      { name: 'Viman Nagar', lat: 18.5679, lon: 73.9143 },
+      { name: 'Pimpri', lat: 18.6279, lon: 73.8009 },
+      { name: 'Chinchwad', lat: 18.6298, lon: 73.7997 },
+      { name: 'Lonavala', lat: 18.7546, lon: 73.4062 },
+    ];
+
+    const categories = [
+      { type: 'mandap', prefix: 'gmmandap', names: ['Royal Palace Mandap', 'Shubham Mandap Hall', 'Divine Wedding Lawns', 'Mangal Karyalay', 'Sai Baba Mandap'] },
+      { type: 'catering', prefix: 'gmcatering', names: ['Shree Caterers', 'Pune Food Masters', 'Annapurna Catering', 'Royal Feast Caterers', 'Swad Catering Services'] },
+      { type: 'decor', prefix: 'gmdecor', names: ['Dream Decor Studio', 'Floral Fantasy', 'Wedding Bells Decor', 'Mangalya Decorators', 'Aura Decor Pune'] },
+      { type: 'photography', prefix: 'gmstudio', names: ['Capture Moments Studio', 'Pune Pixel Studios', 'Wedding Story Films', 'Shutter Dreams', 'Picture Perfect Pune'] },
+      { type: 'entertainment', prefix: 'gment', names: ['DJ Beats Pune', 'Sangeet Party Band', 'Rhythm Masters', 'Dance Floor DJs', 'Melody Makers Entertainment'] },
+    ];
+
+    const createdVendors: any[] = [];
+
+    for (const category of categories) {
+      for (let i = 0; i < category.names.length; i++) {
+        const area = puneAreas[i % puneAreas.length];
+        const randomOffset = () => (Math.random() - 0.5) * 0.1; // Small random offset
+
+        const email = `${category.type}${i + 1}.pune@gomandap.local`;
+
+        // Check if already exists
+        const existing = await Vendor.findOne({ email });
+        if (existing) {
+          createdVendors.push(existing);
+          continue;
+        }
+
+        const count = await Vendor.countDocuments({ vendorType: category.type });
+        const code = `${category.prefix}${101 + count}`;
+
+        const vendor = await Vendor.create({
+          fullName: `${category.names[i]} Owner`,
+          email,
+          phone: `98${Math.floor(10000000 + Math.random() * 90000000)}`,
+          businessName: category.names[i],
+          vendorType: category.type,
+          vendorCode: code,
+          qrCodeUrl: `https://chart.googleapis.com/chart?cht=qr&chs=240x240&chl=${encodeURIComponent(`gomandap://vendor/${category.type}/${code}`)}`,
+          addressLine1: `${area.name} Main Road`,
+          addressLine2: 'Near City Center',
+          city: 'Pune',
+          state: 'Maharashtra',
+          pincode: `41100${i}`,
+          mapsLink: `https://maps.google.com/?q=${area.lat},${area.lon}`,
+          coordinates: {
+            lat: area.lat + randomOffset(),
+            lon: area.lon + randomOffset()
+          },
+          logo: '',
+          description: `Premium ${category.type} services in ${area.name}, Pune. We specialize in making your events memorable with top-quality services.`,
+          experience: `${5 + i}`,
+          pricing: { range: `₹${20 + i * 10}K – ₹${50 + i * 15}K` },
+          services: { core: ['Premium Service', 'Custom Packages', '24/7 Support'] },
+          details: {
+            minPrice: `${20000 + i * 10000}`,
+            maxPrice: `${100000 + i * 20000}`,
+            rating: (4 + Math.random()).toFixed(1),
+            reviews: Math.floor(50 + Math.random() * 200)
+          },
+          onboardingStep: 4,
+          onboardingCompleted: true,
+          isVerified: true,
+          feeAccepted: true
+        });
+
+        createdVendors.push(vendor);
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: `Created/Found ${createdVendors.length} vendors in Pune area`,
+      count: createdVendors.length,
+      data: createdVendors
+    }, 201);
+  } catch (err) {
+    console.error('Seed Pune vendors error:', err);
+    return c.json({ success: false, error: 'Error seeding vendors' }, 500);
+  }
+});
+
+// Seed vendors in scenic village areas near Pune (Kamshet, Pawna, Sinhagad, Mulshi, Panshet)
+app.post('/api/vendors/seed/pune-villages', async (c) => {
+  try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database not connected' }, 500);
+
+    // Scenic wedding destinations near Pune (within 50km of Pimpri-Chinchwad)
+    const villages = [
+      { name: 'Kamshet', lat: 18.7628, lon: 73.5492, city: 'Kamshet' },
+      { name: 'Pawna Lake', lat: 18.6580, lon: 73.4800, city: 'Pawna Lake' },
+      { name: 'Sinhagad', lat: 18.3661, lon: 73.7558, city: 'Sinhagad' },
+      { name: 'Mulshi', lat: 18.5064, lon: 73.5103, city: 'Mulshi' },
+      { name: 'Panshet', lat: 18.3319, lon: 73.6561, city: 'Panshet' },
+    ];
+
+    const categories = [
+      { type: 'mandap', prefix: 'gmmandap', nameTemplate: (v: string) => `${v} Resort & Wedding Venue` },
+      { type: 'catering', prefix: 'gmcatering', nameTemplate: (v: string) => `${v} Traditional Caterers` },
+      { type: 'decor', prefix: 'gmdecor', nameTemplate: (v: string) => `${v} Nature Decorators` },
+      { type: 'photography', prefix: 'gmstudio', nameTemplate: (v: string) => `${v} Destination Photography` },
+      { type: 'entertainment', prefix: 'gment', nameTemplate: (v: string) => `${v} Live Entertainment` },
+    ];
+
+    const createdVendors: any[] = [];
+
+    for (const village of villages) {
+      for (const category of categories) {
+        const email = `${category.type}.${village.name.toLowerCase().replace(/\s+/g, '')}.pune@gomandap.local`;
+
+        // Check if already exists
+        const existing = await Vendor.findOne({ email });
+        if (existing) {
+          createdVendors.push(existing);
+          continue;
+        }
+
+        const count = await Vendor.countDocuments({ vendorType: category.type });
+        const code = `${category.prefix}${101 + count}`;
+        const randomOffset = () => (Math.random() - 0.5) * 0.02; // Small random offset
+
+        const vendor = await Vendor.create({
+          fullName: `${category.nameTemplate(village.name)} Owner`,
+          email,
+          phone: `98${Math.floor(10000000 + Math.random() * 90000000)}`,
+          businessName: category.nameTemplate(village.name),
+          vendorType: category.type,
+          vendorCode: code,
+          qrCodeUrl: `https://chart.googleapis.com/chart?cht=qr&chs=240x240&chl=${encodeURIComponent(`gomandap://vendor/${category.type}/${code}`)}`,
+          addressLine1: `${village.name} Main Road`,
+          addressLine2: 'Scenic Destination',
+          village: village.name,
+          city: village.city,
+          state: 'Maharashtra',
+          pincode: '412106',
+          mapsLink: `https://maps.google.com/?q=${village.lat},${village.lon}`,
+          coordinates: {
+            lat: village.lat + randomOffset(),
+            lon: village.lon + randomOffset()
+          },
+          logo: '',
+          description: `Premium ${category.type} services at ${village.name} - a scenic wedding destination near Pune. Perfect for destination weddings with stunning natural backdrop.`,
+          experience: `${8 + Math.floor(Math.random() * 7)}`,
+          pricing: { range: `₹${30 + Math.floor(Math.random() * 20)}K – ₹${80 + Math.floor(Math.random() * 50)}K` },
+          services: { core: ['Destination Wedding', 'Premium Amenities', 'Nature Setting', 'Custom Packages'] },
+          details: {
+            minPrice: `${30000 + Math.floor(Math.random() * 20000)}`,
+            maxPrice: `${150000 + Math.floor(Math.random() * 100000)}`,
+            rating: (4.2 + Math.random() * 0.7).toFixed(1),
+            reviews: Math.floor(80 + Math.random() * 150)
+          },
+          onboardingStep: 4,
+          onboardingCompleted: true,
+          isVerified: true,
+          feeAccepted: true
+        });
+
+        createdVendors.push(vendor);
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: `Created/Found ${createdVendors.length} vendors in Pune village areas (Kamshet, Pawna, Sinhagad, Mulshi, Panshet)`,
+      count: createdVendors.length,
+      data: createdVendors
+    }, 201);
+  } catch (err) {
+    console.error('Seed Pune villages error:', err);
+    return c.json({ success: false, error: 'Error seeding village vendors' }, 500);
+  }
+});
+
 
 app.get('/api/vendors/code/:code', async (c) => {
   const code = c.req.param('code');
@@ -451,7 +1127,7 @@ app.post('/api/vendors/onboarding', async (c) => {
       let vendor = await Vendor.findOne({ email });
       if (vendor) {
         const oldType = vendor.vendorType;
-        
+
         // Filter details if present
         if (body.details && (vendor.vendorType || body.vendorType)) {
           const type = (body.vendorType || vendor.vendorType || '').toLowerCase();
@@ -459,15 +1135,15 @@ app.post('/api/vendors/onboarding', async (c) => {
         }
 
         Object.assign(vendor, body);
-        
+
         // Check if vendorType has changed OR vendorCode is missing
         if ((vendor.vendorType || body.vendorType) && (!vendor.vendorCode || (oldType && vendor.vendorType !== oldType))) {
           const type = (body.vendorType || vendor.vendorType || '').toLowerCase();
           const prefix = type === 'mandap' ? 'gmmandap' :
-                        type === 'catering' ? 'gmcatering' :
-                        type === 'decor' ? 'gmdecor' :
-                        type === 'entertainment' ? 'gment' :
-                        type === 'photography' ? 'gmstudio' : 'gmvendor';
+            type === 'catering' ? 'gmcatering' :
+              type === 'decor' ? 'gmdecor' :
+                type === 'entertainment' ? 'gment' :
+                  type === 'photography' ? 'gmstudio' : 'gmvendor';
           const count = await Vendor.countDocuments({ vendorType: type });
           const num = 101 + count;
           const code = `${prefix}${num}`;
@@ -480,10 +1156,10 @@ app.post('/api/vendors/onboarding', async (c) => {
         if (toCreate.vendorType && !toCreate.vendorCode) {
           const type = String(toCreate.vendorType).toLowerCase();
           const prefix = type === 'mandap' ? 'gmmandap' :
-                        type === 'catering' ? 'gmcatering' :
-                        type === 'decor' ? 'gmdecor' :
-                        type === 'entertainment' ? 'gment' :
-                        type === 'photography' ? 'gmstudio' : 'gmvendor';
+            type === 'catering' ? 'gmcatering' :
+              type === 'decor' ? 'gmdecor' :
+                type === 'entertainment' ? 'gment' :
+                  type === 'photography' ? 'gmstudio' : 'gmvendor';
           const count = await Vendor.countDocuments({ vendorType: type });
           const num = 101 + count;
           const code = `${prefix}${num}`;
@@ -539,7 +1215,7 @@ app.get('/api/notifications/vendor', async (c) => {
     const token = authHeader.split(' ')[1];
     const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
     const vendorId = decoded.id as string;
-    
+
     // Fetch vendor to know their type
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) return c.json({ success: false, error: 'Vendor not found' }, 404);
@@ -694,35 +1370,35 @@ app.post('/api/vendors/upload', async (c) => {
     const file = body['image'];
 
     if (file && file instanceof File) {
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        
-        // Try Cloudinary first
-        try {
-            const result: any = await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'vendors', resource_type: 'auto' },
-                    (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
-                    }
-                );
-                uploadStream.end(buffer);
-            });
-            return c.json({ success: true, data: { imageUrl: result.secure_url } });
-        } catch (cloudError) {
-            console.error('Cloudinary failed, falling back to local storage:', cloudError);
-            
-            // Fallback to Local Storage
-            const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
-            const filePath = path.join(uploadDir, fileName);
-            fs.writeFileSync(filePath, buffer);
-            
-            const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
-            return c.json({ success: true, data: { imageUrl } });
-        }
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Try Cloudinary first
+      try {
+        const result: any = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: 'vendors', resource_type: 'auto' },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          uploadStream.end(buffer);
+        });
+        return c.json({ success: true, data: { imageUrl: result.secure_url } });
+      } catch (cloudError) {
+        console.error('Cloudinary failed, falling back to local storage:', cloudError);
+
+        // Fallback to Local Storage
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+        const filePath = path.join(uploadDir, fileName);
+        fs.writeFileSync(filePath, buffer);
+
+        const imageUrl = `${PUBLIC_BASE_URL}/uploads/${fileName}`;
+        return c.json({ success: true, data: { imageUrl } });
+      }
     }
-    
+
     return c.json({ success: false, error: 'No image file provided' }, 400);
   } catch (error) {
     console.error('Upload Error:', error);
@@ -755,29 +1431,29 @@ app.post('/api/chat/start', async (c) => {
 
     // Bot Auto-reply
     let botResponse = await botService.processMessage(initialMessage);
-    
+
     // Fallback to Ollama (DeepSeek) if NLP doesn't have an answer
     if (!botResponse) {
-        try {
-            botResponse = await aiService.chat(initialMessage);
-        } catch (e) {
-            console.error('AI Service Error:', e);
-        }
+      try {
+        botResponse = await aiService.chat(initialMessage);
+      } catch (e) {
+        console.error('AI Service Error:', e);
+      }
     }
 
     if (botResponse) {
-        ticket.messages.push({
-            sender: 'bot',
-            text: botResponse,
-            timestamp: new Date()
-        });
+      ticket.messages.push({
+        sender: 'bot',
+        text: botResponse,
+        timestamp: new Date()
+      });
     } else {
-        // Fallback generic message only if AI also fails
-        ticket.messages.push({
-            sender: 'bot',
-            text: `Ticket #${ticket._id.toString().slice(-6)} created. I've notified our support team.`,
-            timestamp: new Date()
-        });
+      // Fallback generic message only if AI also fails
+      ticket.messages.push({
+        sender: 'bot',
+        text: `Ticket #${ticket._id.toString().slice(-6)} created. I've notified our support team.`,
+        timestamp: new Date()
+      });
     }
 
     await ticket.save();
@@ -815,12 +1491,12 @@ app.get('/api/chat/admin', async (c) => {
     // Verify admin token (assuming similar secret for simplicity, or check logic)
     const token = authHeader.split(' ')[1];
     await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
-    
+
     // Populate vendor details
     const tickets = await Ticket.find({})
       .populate('vendorId', 'businessName fullName email')
       .sort({ lastMessageAt: -1 });
-      
+
     return c.json({ success: true, data: tickets });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to fetch tickets' }, 500);
@@ -856,31 +1532,31 @@ app.post('/api/chat/:id/message', async (c) => {
       timestamp: new Date()
     });
     ticket.lastMessageAt = new Date();
-    
+
     // If vendor replies, maybe reopen if resolved?
     if (sender === 'vendor' && ticket.status === 'resolved') {
-        ticket.status = 'open';
+      ticket.status = 'open';
     }
 
     // Auto-reply for vendor messages
     if (sender === 'vendor') {
-        let botResponse = await botService.processMessage(text);
-        
-        if (!botResponse) {
-            try {
-                botResponse = await aiService.chat(text);
-            } catch (e) {
-                console.error('AI Chat Error:', e);
-            }
-        }
+      let botResponse = await botService.processMessage(text);
 
-        if (botResponse) {
-            ticket.messages.push({
-                sender: 'bot',
-                text: botResponse,
-                timestamp: new Date()
-            });
+      if (!botResponse) {
+        try {
+          botResponse = await aiService.chat(text);
+        } catch (e) {
+          console.error('AI Chat Error:', e);
         }
+      }
+
+      if (botResponse) {
+        ticket.messages.push({
+          sender: 'bot',
+          text: botResponse,
+          timestamp: new Date()
+        });
+      }
     }
 
     await ticket.save();
@@ -897,11 +1573,11 @@ app.post('/api/chat/guest', async (c) => {
     if (!text) return c.json({ success: false, error: 'Text required' }, 400);
 
     const botResponse = await botService.processMessage(text);
-    return c.json({ 
-        success: true, 
-        data: { 
-            response: botResponse || "I'm sorry, I couldn't understand that. Please sign up to talk to a human agent." 
-        } 
+    return c.json({
+      success: true,
+      data: {
+        response: botResponse || "I'm sorry, I couldn't understand that. Please sign up to talk to a human agent."
+      }
     });
   } catch (err) {
     return c.json({ success: false, error: 'Guest chat failed' }, 500);
@@ -926,7 +1602,7 @@ app.get('/api/settings', async (c) => {
   try {
     let settings = await Settings.findOne({ type: 'general' });
     if (!settings) {
-        settings = await Settings.create({ type: 'general' });
+      settings = await Settings.create({ type: 'general' });
     }
     return c.json({ success: true, data: settings });
   } catch (err) {
@@ -950,12 +1626,16 @@ app.put('/api/settings', async (c) => {
         type: 'general',
         supportEmail: body.supportEmail,
         supportPhone: body.supportPhone,
-        supportWhatsapp: body.supportWhatsapp
+        supportWhatsapp: body.supportWhatsapp,
+        growthFeeAmount: body.growthFeeAmount ?? 500,
+        growthFeePeriod: body.growthFeePeriod ?? 'year'
       });
     } else {
-      settings.supportEmail = body.supportEmail;
-      settings.supportPhone = body.supportPhone;
-      settings.supportWhatsapp = body.supportWhatsapp;
+      if (body.supportEmail !== undefined) settings.supportEmail = body.supportEmail;
+      if (body.supportPhone !== undefined) settings.supportPhone = body.supportPhone;
+      if (body.supportWhatsapp !== undefined) settings.supportWhatsapp = body.supportWhatsapp;
+      if (body.growthFeeAmount !== undefined) settings.growthFeeAmount = body.growthFeeAmount;
+      if (body.growthFeePeriod !== undefined) settings.growthFeePeriod = body.growthFeePeriod;
       await settings.save();
     }
 
@@ -966,9 +1646,172 @@ app.put('/api/settings', async (c) => {
   }
 });
 
+
 import { createWorker } from 'tesseract.js';
 import { BotKnowledge } from './models/BotKnowledge.js';
 import { aiService } from './services/AIService.js';
+
+// --- Booking Routes ---
+
+import { Booking } from './models/Booking.js';
+import { Enquiry } from './models/Enquiry.js';
+
+// Create Booking (Client)
+app.post('/api/bookings', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const clientId = decoded.id;
+
+    const { vendorId, eventDate, eventType, guestCount, message } = await c.req.json();
+
+    if (!vendorId || !eventDate || !eventType) {
+      return c.json({ success: false, error: 'Vendor, Event Date, and Event Type are required.' }, 400);
+    }
+
+    // Verify vendor exists
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) {
+      return c.json({ success: false, error: 'Selected vendor not found.' }, 404);
+    }
+
+    const booking = await Booking.create({
+      clientId,
+      vendorId,
+      eventDate,
+      eventType,
+      guestCount,
+      message,
+      status: 'pending'
+    });
+
+    // Optional: Send notification to Vendor here
+
+    return c.json({ success: true, data: booking });
+  } catch (err) {
+    console.error('Create Booking Error:', err);
+    return c.json({ success: false, error: 'Failed to create booking' }, 500);
+  }
+});
+
+// Get All Bookings (Admin)
+app.get('/api/admin/bookings', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const bookings = await Booking.find()
+      .populate('clientId', 'displayName email')
+      .populate('vendorId', 'businessName vendorType')
+      .sort({ createdAt: -1 });
+
+    return c.json({ success: true, count: bookings.length, data: bookings });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to fetch bookings' }, 500);
+  }
+});
+
+// Get Vendor Bookings
+app.get('/api/vendor/bookings', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const vendorId = decoded.id;
+
+    const bookings = await Booking.find({ vendorId })
+      .populate('clientId', 'displayName email phone')
+      .sort({ createdAt: -1 });
+
+    return c.json({ success: true, data: bookings });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to fetch bookings' }, 500);
+  }
+});
+
+// Get Client Bookings
+app.get('/api/client/bookings', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const clientId = decoded.id;
+
+    const bookings = await Booking.find({ clientId })
+      .populate('vendorId', 'businessName logo city')
+      .sort({ createdAt: -1 });
+
+    return c.json({ success: true, data: bookings });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to fetch bookings' }, 500);
+  }
+});
+
+
+// --------------------------------------------------------------------------
+// Custom Enquiry Routes
+// --------------------------------------------------------------------------
+
+// Create Custom Enquiry
+app.post('/api/enquiries', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { name, phone, email, location, eventType, eventDate, guestCount, budget, services, message, clientId, vendorId, source } = body;
+
+    // Basic Validation
+    if (!name || !phone) {
+      return c.json({ success: false, error: "Name and Phone are required." }, 400);
+    }
+
+    const newEnquiry = new Enquiry({
+      clientId: clientId || undefined,
+      vendorId: vendorId || undefined, // Link to specific vendor if provided
+      name,
+      phone,
+      email,
+      location,
+      eventType,
+      eventDate,
+      guestCount,
+      budget,
+      services,
+      message,
+      source: source || 'website',
+      status: 'new'
+    });
+
+    await newEnquiry.save();
+
+    return c.json({ success: true, data: newEnquiry });
+  } catch (err: any) {
+    console.error("Enquiry Error:", err);
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// Get Admin Enquiries
+app.get('/api/admin/enquiries', async (c) => {
+  try {
+    const authHeader = c.req.header("Authorization");
+    if (!authHeader) return c.json({ success: false, error: "Unauthorized" }, 401);
+
+    const enquiries = await Enquiry.find().sort({ createdAt: -1 });
+    return c.json({ success: true, data: enquiries });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
 
 // --- Bot Training & OCR Routes ---
 
@@ -977,7 +1820,12 @@ app.get('/api/admin/bot/knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
   try {
-    const knowledge = await BotKnowledge.find().sort({ createdAt: -1 });
+    const audience = c.req.query('audience');
+    const query: any = {};
+    if (audience && audience !== 'all') {
+      query.targetAudience = audience;
+    }
+    const knowledge = await BotKnowledge.find(query).sort({ createdAt: -1 });
     return c.json({ success: true, data: knowledge });
   } catch (err) {
     return c.json({ success: false, error: 'Failed to fetch knowledge' }, 500);
@@ -988,13 +1836,13 @@ app.get('/api/admin/bot/knowledge', async (c) => {
 app.post('/api/admin/bot/train', async (c) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-  
+
   try {
-    const { question, answer } = await c.req.json();
+    const { question, answer, targetAudience } = await c.req.json();
     if (!question || !answer) return c.json({ success: false, error: 'Question and answer required' }, 400);
 
-    const newItem = await botService.addKnowledge(question, answer);
-    
+    const newItem = await botService.addKnowledge(question, answer, targetAudience || 'general');
+
     // Trigger retrain (async)
     botService.retrain();
 
@@ -1034,15 +1882,15 @@ app.post('/api/admin/bot/ocr', async (c) => {
     const file = body['image'];
 
     if (file && file instanceof File) {
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        
-        const worker = await createWorker('eng');
-        const ret = await worker.recognize(buffer);
-        const text = ret.data.text;
-        await worker.terminate();
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-        return c.json({ success: true, data: { text } });
+      const worker = await createWorker('eng');
+      const ret = await worker.recognize(buffer);
+      const text = ret.data.text;
+      await worker.terminate();
+
+      return c.json({ success: true, data: { text } });
     }
     return c.json({ success: false, error: 'No image provided' }, 400);
   } catch (err) {
@@ -1062,10 +1910,10 @@ app.post('/api/admin/ai/ingest/pdf', async (c) => {
     const file = body['file'];
 
     if (file && file instanceof File) {
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const kb = await aiService.ingestPDF(buffer, file.name);
-        return c.json({ success: true, data: kb });
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const kb = await aiService.ingestPDF(buffer, file.name);
+      return c.json({ success: true, data: kb });
     }
     return c.json({ success: false, error: 'No file provided' }, 400);
   } catch (err) {
@@ -1101,6 +1949,50 @@ app.post('/api/admin/ai/chat', async (c) => {
     return c.json({ success: true, data: { response } });
   } catch (err) {
     return c.json({ success: false, error: 'AI Chat failed' }, 500);
+  }
+});
+
+// Update Vendor Status (Admin)
+app.put('/api/admin/vendors/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  const vendorId = c.req.param('id');
+  const body = await c.req.json();
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) return c.json({ success: false, error: 'Vendor not found' }, 404);
+
+    if (typeof body.isVerified !== 'undefined') vendor.isVerified = body.isVerified;
+    if (typeof body.onboardingCompleted !== 'undefined') vendor.onboardingCompleted = body.onboardingCompleted;
+    if (typeof body.onboardingStep !== 'undefined') vendor.onboardingStep = body.onboardingStep;
+    if (typeof body.priority !== 'undefined') vendor.priority = body.priority;
+    if (typeof body.phone !== 'undefined') vendor.phone = body.phone;
+    if (typeof body.additionalPhones !== 'undefined') vendor.additionalPhones = body.additionalPhones;
+    if (typeof body.whatsappNumber !== 'undefined') vendor.whatsappNumber = body.whatsappNumber;
+
+    await vendor.save();
+
+    // If "sent back" (onboardingCompleted set to false), try to send a notification
+    if (body.onboardingCompleted === false && body.reason) {
+      await Notification.create({
+        recipientType: 'specific',
+        recipientId: vendorId,
+        recipientVendorType: vendor.vendorType,
+        title: 'Onboarding Update',
+        message: `Action Required: ${body.reason}`,
+        type: 'alert'
+      });
+    }
+
+    return c.json({ success: true, data: vendor });
+  } catch (err) {
+    console.error('Update Vendor Error:', err);
+    return c.json({ success: false, error: 'Failed to update vendor' }, 500);
   }
 });
 

@@ -19,7 +19,12 @@ const BotKnowledgeSchema = new mongoose.Schema({
   tags: [String],
   // Legacy support for Q&A pairs
   question: String,
-  answer: String
+  answer: String,
+  targetAudience: {
+    type: String,
+    enum: ['client', 'vendor', 'general'],
+    default: 'general'
+  }
 }, {
   timestamps: true
 });
