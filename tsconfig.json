@@ -11,8 +11,8 @@
     "rootDir": "./src",
     "types": ["node"],
     "typeRoots": ["./node_modules/@types"],
-    "allowImportingTsExtensions": true,
-    "noEmit": true
+    
+    "noEmit": false
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]

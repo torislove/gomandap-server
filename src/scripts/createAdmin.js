@@ -4,7 +4,6 @@ import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 
 const LOG_FILE = 'create_admin_log.txt';
 
@@ -17,7 +16,6 @@ function log(msg) {
 
 log('Script started...');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const REMOTE_URI = process.env.MONGO_URI;

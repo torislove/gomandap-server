@@ -1,5 +1,6 @@
 import { serveStatic } from '@hono/node-server/serve-static';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -77,8 +78,9 @@ const ensureDb = async () => {
   return isDbConnected;
 };
 
-// Ensure uploads directory exists
-const uploadDir = path.join(process.cwd(), 'uploads');
+const uploadDir = (process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG)
+  ? path.join(os.tmpdir(), 'uploads')
+  : path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
