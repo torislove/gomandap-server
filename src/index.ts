@@ -173,7 +173,11 @@ app.use('/*', cors({
   maxAge: 600,
   credentials: true,
 }));
-app.use('/uploads/*', serveStatic({ root: './' }));
+const staticRoot = (process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG) ? os.tmpdir() : process.cwd();
+app.use('/uploads/*', serveStatic({
+  root: staticRoot,
+  rewriteRequestPath: (p) => p.replace(/^\/uploads\//, 'uploads/')
+}));
 
 // Admin Routes
 app.post('/api/admin/login', async (c) => {
