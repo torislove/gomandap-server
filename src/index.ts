@@ -187,6 +187,23 @@ app.use('/uploads/*', serveStatic({
 
 app.get('/', (c) => c.text('GoMandap Server Running!'));
 
+app.get('/diag', async (c) => {
+  const dbStatus = mongoose.connection.readyState;
+  const statusMap = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
+
+  return c.json({
+    status: 'ok',
+    database: statusMap[dbStatus as keyof typeof statusMap] || 'unknown',
+    env: {
+      has_mongo_uri: !!process.env.MONGO_URI,
+      has_jwt_secret: !!process.env.JWT_SECRET,
+      has_firebase_creds: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+      node_env: process.env.NODE_ENV
+    },
+    uptime: process.uptime()
+  });
+});
+
 
 // Admin Routes
 app.post('/api/admin/login', async (c) => {
