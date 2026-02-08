@@ -40,7 +40,7 @@ app.get('/vendor/stats', async (c) => {
         // 3. Profile Visits & Rating (from Vendor model)
         const vendor = await Vendor.findById(vendorId).select('stats rating');
         const views = vendor?.stats?.views || 0;
-        const rating = vendor?.rating || 0;
+        const rating = (vendor as any)?.rating || 0;
 
         // 4. Review Count
         const reviewCount = await Review.countDocuments({ vendorId: vendorId });

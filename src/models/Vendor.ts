@@ -61,6 +61,7 @@ const VendorSchema = new mongoose.Schema({
   promoVideoUrl: { type: String },
   stats: {
     views: { type: Number, default: 0 },
+    rating: { type: Number, default: 0 }, // Added rating field
     bookingsLast30d: { type: Number, default: 0 },
     responseTime: { type: Number, default: 0 } // in minutes
   },
