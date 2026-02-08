@@ -88,7 +88,7 @@ const ensureDb = async () => {
   return isDbConnected;
 };
 
-const uploadDir = (process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG)
+const uploadDir = (process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG || process.env.VERCEL)
   ? path.join(os.tmpdir(), 'uploads')
   : path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
