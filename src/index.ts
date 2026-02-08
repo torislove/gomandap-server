@@ -52,40 +52,27 @@ mongoose.connection.on('disconnected', () => {
 });
 
 const ensureDb = async () => {
-  const state = Number(mongoose.connection.readyState);
-  if (state === 1) {
-    if (!isDbConnected) setDbConnected(true);
-    return true;
-  }
-
+  const state = mongoose.connection.readyState;
+  if (state === 1) return true;
   if (state === 2) {
-    const start = Date.now();
-    while (Number(mongoose.connection.readyState) === 2 && Date.now() - start < 5000) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    const ready = Number(mongoose.connection.readyState) === 1;
-    setDbConnected(ready);
-    return ready;
+    // Already connecting, wait briefly but don't loop indefinitely
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return mongoose.connection.readyState === 1;
   }
 
-  if (!isDbConnected) {
-    try {
-      await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/gomandap', { serverSelectionTimeoutMS: 5000 } as any);
-      setDbConnected(true);
-    } catch (err) {
-      console.error('Atlas connection failed. Reason:', err instanceof Error ? err.message : err);
-      try {
-        console.log('Attempting local MongoDB fallback...');
-        await mongoose.connect('mongodb://localhost:27017/gomandap', { serverSelectionTimeoutMS: 5000 } as any);
-        setDbConnected(true);
-        console.log('Local MongoDB connected.');
-      } catch (err2) {
-        console.error('Local MongoDB connection failed.');
-        setDbConnected(false);
-      }
-    }
+  try {
+    console.log('Connecting to MongoDB...');
+    await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/gomandap', {
+      serverSelectionTimeoutMS: 5000,
+      bufferCommands: false
+    } as any);
+    setDbConnected(true);
+    return true;
+  } catch (err) {
+    console.error('MongoDB connection failed:', err instanceof Error ? err.message : err);
+    setDbConnected(false);
+    return false;
   }
-  return isDbConnected;
 };
 
 const uploadDir = (process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG || process.env.VERCEL)
