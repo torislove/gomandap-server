@@ -3,12 +3,17 @@ import admin from 'firebase-admin';
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
     try {
-        // Check if we are in production (Firebase Functions) or local
-        if (process.env.FIREBASE_CONFIG) {
+        if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+            // Vercel / Production with JSON env var
+            const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+            admin.initializeApp({
+                credential: admin.credential.cert(serviceAccount)
+            });
+        } else if (process.env.FIREBASE_CONFIG) {
+            // Firebase Functions context
             admin.initializeApp();
         } else {
-            // Local development - ensure GOOGLE_APPLICATION_CREDENTIALS is set or use explicit config
-            // For now, we'll try default app logic which looks for the env var
+            // Local development
             admin.initializeApp({
                 credential: admin.credential.applicationDefault()
             });

@@ -16,7 +16,23 @@ function log(msg) {
 
 log('Script started...');
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+const rootEnv = path.resolve(process.cwd(), '.env');
+const serverEnv = path.resolve(process.cwd(), 'server', '.env');
+const scriptRelativeEnv = path.resolve(new URL(import.meta.url).pathname, '../../../../.env'); // from src/scripts to server/.env
+
+if (fs.existsSync(rootEnv)) {
+    log(`Loading env from CWD: ${rootEnv}`);
+    dotenv.config({ path: rootEnv });
+} else if (fs.existsSync(serverEnv)) {
+    log(`Loading env from server folder: ${serverEnv}`);
+    dotenv.config({ path: serverEnv });
+} else if (fs.existsSync(scriptRelativeEnv)) {
+    log(`Loading env relative to script: ${scriptRelativeEnv}`);
+    dotenv.config({ path: scriptRelativeEnv });
+} else {
+    log('No specific .env found, using default dotenv.config()');
+    dotenv.config();
+}
 
 const REMOTE_URI = process.env.MONGO_URI;
 const LOCAL_URI = 'mongodb://localhost:27017/gomandap';

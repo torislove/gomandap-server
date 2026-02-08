@@ -158,7 +158,21 @@ const filterDetails = (details: any, type: string) => {
 const app = new Hono();
 
 app.use('/*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5000', 'http://localhost:5001', 'https://vendor.snapadda.com', 'https://admin.snapadda.com', 'https://snapadda.com'],
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5000',
+    'http://localhost:5001',
+    'https://vendor.snapadda.com',
+    'https://admin.snapadda.com',
+    'https://snapadda.com',
+    'https://gomandap-4837b.web.app',
+    'https://gomandap-4837b.firebaseapp.com',
+    'https://gomandap-admin.web.app',
+    'https://gomandap-vendor.web.app',
+    'https://gomandap-client.web.app'
+  ],
   allowMethods: ['POST', 'GET', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
