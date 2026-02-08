@@ -1920,7 +1920,7 @@ app.get('/api/getThemeColors', async (c) => {
 });
 
 
-import { createWorker } from 'tesseract.js';
+// import { createWorker } from 'tesseract.js'; // REMOVED
 import { BotKnowledge } from './models/BotKnowledge.js';
 import { aiService } from './services/AIService.js';
 
@@ -2089,6 +2089,7 @@ app.get('/api/admin/enquiries', async (c) => {
 
 // OCR Route (Image -> Text)
 app.post('/api/admin/bot/ocr', async (c) => {
+  /*
   const authHeader = c.req.header('Authorization');
   if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
 
@@ -2100,18 +2101,20 @@ app.post('/api/admin/bot/ocr', async (c) => {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      const worker = await createWorker('eng');
-      const ret = await worker.recognize(buffer);
-      const text = ret.data.text;
-      await worker.terminate();
+      // const worker = await createWorker('eng');
+      // const ret = await worker.recognize(buffer);
+      // const text = ret.data.text;
+      // await worker.terminate();
 
-      return c.json({ success: true, data: { text } });
+      return c.json({ success: true, data: { text: "OCR Disabled" } });
     }
     return c.json({ success: false, error: 'No image provided' }, 400);
   } catch (err) {
     console.error('OCR Error:', err);
     return c.json({ success: false, error: 'OCR processing failed' }, 500);
   }
+  */
+  return c.json({ success: false, error: 'OCR Disabled in Serverless Mode' }, 501);
 });
 
 // --- Advanced AI Routes ---
