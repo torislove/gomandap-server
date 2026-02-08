@@ -1,9 +1,9 @@
 import { BotKnowledge } from '../models/BotKnowledge.js';
 import { Vendor } from '../models/Vendor.js';
-import { PDFParse } from 'pdf-parse';
-import { createWorker } from 'tesseract.js';
+// import { PDFParse } from 'pdf-parse'; // REMOVED
+// import { createWorker } from 'tesseract.js'; // REMOVED
 import axios from 'axios';
-import * as cheerio from 'cheerio';
+// import * as cheerio from 'cheerio'; // REMOVED
 // import OpenAI from 'openai'; // REMOVED
 import dotenv from 'dotenv';
 
@@ -13,77 +13,21 @@ dotenv.config();
 
 export class AIService {
 
-  // --- Ingestion Methods ---
+  // --- Ingestion Methods (Disabled for Serverless Compatibility) ---
 
   async ingestPDF(buffer: Buffer, filename: string): Promise<any> {
-    try {
-      const parser = new PDFParse({ data: buffer });
-      const data = await parser.getText();
-      const text = data.text;
-
-      // Store in Knowledge Base
-      const kb = await BotKnowledge.create({
-        sourceType: 'pdf',
-        sourceUrl: filename,
-        title: `PDF: ${filename}`,
-        content: text,
-        tags: ['document', 'pdf']
-      });
-
-      return kb;
-    } catch (error) {
-      console.error('PDF Ingest Error:', error);
-      throw new Error('Failed to parse PDF');
-    }
+    console.warn('PDF Ingestion disabled in serverless environment');
+    return { title: filename, content: 'PDF processing not available in this environment.' };
   }
 
   async ingestWeb(url: string): Promise<any> {
-    try {
-      const { data } = await axios.get(url);
-      const $ = cheerio.load(data);
-
-      // Remove scripts, styles
-      $('script').remove();
-      $('style').remove();
-
-      const title = $('title').text();
-      const content = $('body').text().replace(/\s+/g, ' ').trim();
-
-      const kb = await BotKnowledge.create({
-        sourceType: 'web',
-        sourceUrl: url,
-        title: title || url,
-        content: content.substring(0, 10000), // Limit size
-        tags: ['web', 'scrape']
-      });
-
-      return kb;
-    } catch (error) {
-      console.error('Web Ingest Error:', error);
-      throw new Error('Failed to scrape URL');
-    }
+    console.warn('Web Ingestion disabled in serverless environment');
+    return { title: url, content: 'Web scraping not available in this environment.' };
   }
 
   async ingestImage(buffer: Buffer, filename: string): Promise<any> {
-    try {
-      const worker = await createWorker('eng');
-      const ret = await worker.recognize(buffer);
-      const text = ret.data.text;
-      await worker.terminate();
-
-      const kb = await BotKnowledge.create({
-        sourceType: 'image',
-        sourceUrl: filename,
-        title: `Image: ${filename}`,
-        content: text,
-        tags: ['image', 'ocr']
-      });
-
-      return kb;
-    } catch (error) {
-      console.error('Image Ingest Error:', error);
-      throw new Error('Failed to process image');
-    }
+    console.warn('Image Ingestion disabled in serverless environment');
+    return { title: filename, content: 'Image OCR not available in this environment.' };
   }
 
   // --- Analysis Methods ---
