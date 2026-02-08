@@ -13,10 +13,20 @@ import { Admin } from './models/Admin.js';
 import { Notification } from './models/Notification.js';
 import { Ticket } from './models/Ticket.js';
 import { Settings } from './models/Settings.js';
-import { botService } from './services/BotService.js';
+import { FeedPost } from './models/FeedPost.js';
+// BotService removed
 import { OAuth2Client } from 'google-auth-library';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
+import { PromoBanner } from './models/PromoBanner.js';
+import { Theme } from './models/Theme.js';
+import { AnnouncementCard } from './models/AnnouncementCard.js';
+import { PopularCity } from './models/PopularCity.js';
+import { VendorPackage } from './models/VendorPackage.js';
+import { Booking } from './models/Booking.js';
+import { ServicePortfolio } from './models/ServicePortfolio.js';
+import { notificationService } from './services/NotificationService.js';
+import portfolioRoutes from './routes/portfolio.js';
 import { devStore, isDbConnected, setDbConnected } from './devStore.js';
 
 dotenv.config();
@@ -148,32 +158,18 @@ const filterDetails = (details: any, type: string) => {
 const app = new Hono();
 
 app.use('/*', cors({
-  origin: (origin) => {
-    const allowedOrigins = [
-      'https://snapadda.com',
-      'https://vendor.snapadda.com',
-      'https://admin.snapadda.com'
-    ];
-    
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return origin;
-    
-    // Allow allowed origins
-    if (allowedOrigins.includes(origin)) return origin;
-    
-    // Allow localhost for development
-    if (origin.startsWith('http://localhost')) return origin;
-    
-    // Block all other origins
-    return undefined;
-  },
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-  exposeHeaders: ['Content-Length'],
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5000', 'http://localhost:5001', 'https://vendor.snapadda.com', 'https://admin.snapadda.com', 'https://snapadda.com'],
+  allowMethods: ['POST', 'GET', 'OPTIONS', 'DELETE', 'PUT', 'PATCH'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
   maxAge: 600,
   credentials: true,
 }));
-app.use('/uploads/*', serveStatic({ root: './' }));
+const staticRoot = (process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG) ? os.tmpdir() : process.cwd();
+app.use('/uploads/*', serveStatic({
+  root: staticRoot,
+  rewriteRequestPath: (p) => p.replace(/^\/uploads\//, 'uploads/')
+}));
 
 // Admin Routes
 app.post('/api/admin/login', async (c) => {
@@ -211,6 +207,196 @@ app.post('/api/admin/login', async (c) => {
       email: admin.email
     }
   });
+});
+
+// Theme & Promo Banner Public APIs
+app.get('/api/public/theme', async (c) => {
+  await ensureDb();
+  const activeTheme = await Theme.findOne({ isActive: true });
+  return c.json({ success: true, data: activeTheme });
+});
+
+app.get('/api/public/promos', async (c) => {
+  await ensureDb();
+  const promos = await PromoBanner.find({ isActive: true }).sort({ order: 1 });
+  return c.json({ success: true, data: promos });
+});
+
+// Admin Management APIs (Themes & Promos)
+app.get('/api/admin/themes', async (c) => {
+  await ensureDb();
+  const themes = await Theme.find().sort({ createdAt: -1 });
+  return c.json({ success: true, data: themes });
+});
+
+app.post('/api/admin/themes', async (c) => {
+  await ensureDb();
+  const body = await c.req.json();
+  const theme = new Theme(body);
+  await theme.save();
+  return c.json({ success: true, data: theme });
+});
+
+app.patch('/api/admin/themes/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const theme = await Theme.findByIdAndUpdate(id, body, { new: true });
+  return c.json({ success: true, data: theme });
+});
+
+app.get('/api/admin/promos', async (c) => {
+  await ensureDb();
+  const promos = await PromoBanner.find().sort({ order: 1 });
+  return c.json({ success: true, data: promos });
+});
+
+app.post('/api/admin/promos', async (c) => {
+  await ensureDb();
+  const body = await c.req.json();
+  const promo = new PromoBanner(body);
+  await promo.save();
+  return c.json({ success: true, data: promo });
+});
+
+app.patch('/api/admin/promos/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const promo = await PromoBanner.findByIdAndUpdate(id, body, { new: true });
+  return c.json({ success: true, data: promo });
+});
+
+// Announcement Cards API
+app.get('/api/announcement-cards', async (c) => {
+  try {
+    await ensureDb();
+    const now = new Date();
+
+    const cards = await AnnouncementCard.find({
+      isActive: true,
+      $or: [
+        { startDate: null, endDate: null },
+        { startDate: { $lte: now }, endDate: null },
+        { startDate: null, endDate: { $gte: now } },
+        { startDate: { $lte: now }, endDate: { $gte: now } },
+      ],
+    }).sort({ displayOrder: 1 }).select('-__v');
+
+    return c.json({ success: true, data: cards });
+  } catch (error) {
+    console.error('Error fetching announcement cards:', error);
+    return c.json({ success: false, message: 'Failed to fetch announcement cards' }, 500);
+  }
+});
+
+app.get('/api/announcement-cards/admin/all', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    await ensureDb();
+
+    const cards = await AnnouncementCard.find().sort({ displayOrder: 1, createdAt: -1 });
+    return c.json({ success: true, data: cards });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to fetch cards' }, 500);
+  }
+});
+
+app.post('/api/announcement-cards/admin', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    await ensureDb();
+
+    const body = await c.req.json();
+    if (!body.title || !body.description) {
+      return c.json({ success: false, message: 'Title and description required' }, 400);
+    }
+
+    const maxCard = await AnnouncementCard.findOne().sort({ displayOrder: -1 });
+    const displayOrder = maxCard ? maxCard.displayOrder + 1 : 0;
+
+    const newCard = new AnnouncementCard({ ...body, displayOrder });
+    await newCard.save();
+    return c.json({ success: true, data: newCard }, 201);
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to create card' }, 500);
+  }
+});
+
+app.put('/api/announcement-cards/admin/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    await ensureDb();
+
+    const id = c.req.param('id');
+    const body = await c.req.json();
+
+    const card = await AnnouncementCard.findByIdAndUpdate(
+      id,
+      { ...body, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    );
+
+    if (!card) return c.json({ success: false, message: 'Card not found' }, 404);
+    return c.json({ success: true, data: card });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to update card' }, 500);
+  }
+});
+
+app.delete('/api/announcement-cards/admin/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    await ensureDb();
+
+    const id = c.req.param('id');
+    const card = await AnnouncementCard.findByIdAndDelete(id);
+
+    if (!card) return c.json({ success: false, message: 'Card not found' }, 404);
+    return c.json({ success: true, message: 'Card deleted successfully' });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to delete card' }, 500);
+  }
+});
+
+app.put('/api/announcement-cards/admin/reorder', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    await ensureDb();
+
+    const { orders } = await c.req.json();
+    if (!Array.isArray(orders)) {
+      return c.json({ success: false, message: 'Orders must be an array' }, 400);
+    }
+
+    await Promise.all(
+      orders.map(({ id, displayOrder }) =>
+        AnnouncementCard.findByIdAndUpdate(id, { displayOrder, updatedAt: new Date() })
+      )
+    );
+
+    return c.json({ success: true, message: 'Cards reordered successfully' });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to reorder cards' }, 500);
+  }
 });
 
 app.post('/api/admin/create', async (c) => {
@@ -607,15 +793,85 @@ app.get('/api/admin/stats', async (c) => {
   }
 });
 
+// Admin Routes
+app.get('/api/admin/stats', async (c) => {
+  try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
+    const totalVendors = await Vendor.countDocuments();
+    const verifiedVendors = await Vendor.countDocuments({ isVerified: true });
+
+    // Check if Client model is available, otherwise 0
+    let totalClients = 0;
+    try { totalClients = await Client.countDocuments(); } catch (e) { }
+
+    return c.json({
+      success: true,
+      data: {
+        vendors: { total: totalVendors, verified: verifiedVendors },
+        clients: { total: totalClients, activeToday: 0 }
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    return c.json({ success: false, error: 'Error fetching stats' }, 500);
+  }
+});
+
+// Get All Vendors (for Admin)
+app.get('/api/vendors', async (c) => {
+  try {
+    const ok = await ensureDb();
+    if (!ok) return c.json({ success: false, error: 'Database unavailable' }, 503);
+
+    const vendors = await Vendor.find({}).sort({ createdAt: -1 });
+    return c.json({ success: true, data: vendors });
+  } catch (err) {
+    console.error(err);
+    return c.json({ success: false, error: 'Error fetching vendors' }, 500);
+  }
+});
+
+// Update Vendor (Admin)
+app.put('/api/admin/vendors/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const vendorId = c.req.param('id');
+    const body = await c.req.json();
+
+    // Protect sensitive fields if needed, but for now allow open update for admins
+    const vendor = await Vendor.findByIdAndUpdate(vendorId, { $set: body }, { new: true });
+
+    if (!vendor) return c.json({ success: false, error: 'Vendor not found' }, 404);
+
+    return c.json({ success: true, data: vendor });
+  } catch (err) {
+    console.error('Admin Vendor Update Error:', err);
+    return c.json({ success: false, error: 'Failed to update vendor' }, 500);
+  }
+});
+
 // Vendor Routes
 app.post('/api/vendors/signup', async (c) => {
-  const { fullName, email, password, phone, businessName, vendorType, whatsappNumber, additionalPhones } = await c.req.json();
+  const body = await c.req.json();
+  const { fullName, email, password, phone, businessName, vendorType, whatsappNumber, additionalPhones } = body;
+  console.log(`[SIGNUP ATTEMPT] Email: ${email}, Business: ${businessName}`);
 
   try {
     const ok = await ensureDb();
-    if (!ok) return c.json({ success: false, error: 'Database not connected. Please whitelist your IP in Atlas or start local MongoDB.' }, 500);
+    if (!ok) {
+      console.error('[SIGNUP ERROR] DB Not Connected');
+      return c.json({ success: false, error: 'Database not connected. Please whitelist your IP in Atlas or start local MongoDB.' }, 500);
+    }
     const existing = await Vendor.findOne({ email });
     if (existing) {
+      console.log(`[SIGNUP ERROR] Email already exists: ${email}`);
       return c.json({ success: false, error: 'Email already registered' }, 400);
     }
     const salt = await bcrypt.genSalt(10);
@@ -641,11 +897,14 @@ app.post('/api/vendors/signup', async (c) => {
 
 app.post('/api/vendors/login', async (c) => {
   const { email, password } = await c.req.json();
+  console.log(`[LOGIN ATTEMPT] Email: ${email}`);
 
   try {
     if (!isDbConnected) {
+      console.log('[LOGIN] DB not connected, using devStore');
       const vendor = devStore.findByEmail(email);
       if (!vendor || !vendor.password) {
+        console.log('[LOGIN] Vendor not found in devStore');
         return c.json({ success: false, error: 'Invalid credentials' }, 401);
       }
       const isMatch = await bcrypt.compare(password, vendor.password);
@@ -655,7 +914,10 @@ app.post('/api/vendors/login', async (c) => {
       const token = await sign({ id: vendor._id }, process.env.JWT_SECRET || 'secret');
       return c.json({ success: true, token, data: vendor });
     } else {
+      console.log('[LOGIN] DB connected, searching Mongo');
       const vendor = await Vendor.findOne({ email });
+      if (!vendor) console.log('[LOGIN] Vendor not found in MongoDB');
+
       if (!vendor || !vendor.password) {
         return c.json({ success: false, error: 'Invalid credentials' }, 401);
       }
@@ -1245,11 +1507,81 @@ app.post('/api/notifications/send', async (c) => {
       type
     });
 
+    // --- GOOGLE NOTIFICATION INTEGRATION ---
+    // Fetch tokens based on recipientType
+    let tokens: string[] = [];
+
+    if (recipientType === 'all') {
+      const vendors = await Vendor.find({ fcmTokens: { $exists: true, $not: { $size: 0 } } }).select('fcmTokens');
+      const clients = await Client.find({ fcmTokens: { $exists: true, $not: { $size: 0 } } }).select('fcmTokens'); // If we want to broadcast to clients too?
+      // User asked "for client and vendor app". But Admin UI currently targets Vendors.
+      // Assuming 'all' means all Vendors for now based on UI context.
+      vendors.forEach(v => { if (v.fcmTokens) tokens.push(...v.fcmTokens); });
+    } else if (recipientType === 'vendorType' && recipientVendorType) {
+      const vendors = await Vendor.find({ vendorType: recipientVendorType, fcmTokens: { $exists: true, $not: { $size: 0 } } }).select('fcmTokens');
+      vendors.forEach(v => { if (v.fcmTokens) tokens.push(...v.fcmTokens); });
+    } else if (recipientType === 'specific' && recipientId) {
+      const vendor = await Vendor.findById(recipientId).select('fcmTokens');
+      if (vendor?.fcmTokens) tokens.push(...vendor.fcmTokens);
+
+      // Also check if recipientId matches a Client (if reused) -> Admin UI seems specific to Vendors currently.
+      if (!vendor) {
+        const client = await Client.findById(recipientId).select('fcmTokens');
+        if (client?.fcmTokens) tokens.push(...client.fcmTokens);
+      }
+    }
+
+    if (tokens.length > 0) {
+      // Send via FCM
+      try {
+        await notificationService.sendToTokens(tokens, title, message, {
+          type,
+          notificationId: notification._id.toString()
+        });
+        console.log(`Notification sent to ${tokens.length} devices.`);
+      } catch (fcmError) {
+        console.error('FCM Send Warning:', fcmError);
+        // Don't fail the request, just log
+      }
+    }
+
     return c.json({ success: true, data: notification });
   } catch (err) {
     console.error('Send Notification Error:', err);
     return c.json({ success: false, error: 'Failed to send notification' }, 500);
   }
+});
+
+// Register FCM Token (Vendor)
+app.post('/api/vendor/fcm-token', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token' }, 401);
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const { fcmToken } = await c.req.json();
+
+    if (fcmToken) {
+      await Vendor.findByIdAndUpdate(decoded.id, { $addToSet: { fcmTokens: fcmToken } });
+    }
+    return c.json({ success: true });
+  } catch (e) { return c.json({ success: false }, 500); }
+});
+
+// Register FCM Token (Client)
+app.post('/api/client/fcm-token', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token' }, 401);
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const { fcmToken } = await c.req.json();
+
+    if (fcmToken) {
+      await Client.findByIdAndUpdate(decoded.id, { $addToSet: { fcmTokens: fcmToken } });
+    }
+    return c.json({ success: true });
+  } catch (e) { return c.json({ success: false }, 500); }
 });
 
 // Get Vendor Notifications
@@ -1455,178 +1787,28 @@ app.post('/api/vendors/upload', async (c) => {
 // --- Chat / Support Ticket Routes ---
 
 // Create a new ticket (Vendor)
-app.post('/api/chat/start', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+// --- Lali.ai Chat Routes ---
 
+app.post('/api/lali/chat', async (c) => {
   try {
-    const token = authHeader.split(' ')[1];
-    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
-    const vendorId = decoded.id;
-    const { subject, initialMessage } = await c.req.json();
+    const { message } = await c.req.json();
+    if (!message) return c.json({ success: false, error: 'Message required' }, 400);
 
-    const ticket = await Ticket.create({
-      vendorId,
-      subject: subject || 'New Support Request',
-      messages: [{
-        sender: 'vendor',
-        text: initialMessage,
-        timestamp: new Date()
-      }]
-    });
-
-    // Bot Auto-reply
-    let botResponse = await botService.processMessage(initialMessage);
-
-    // Fallback to Ollama (DeepSeek) if NLP doesn't have an answer
-    if (!botResponse) {
-      try {
-        botResponse = await aiService.chat(initialMessage);
-      } catch (e) {
-        console.error('AI Service Error:', e);
-      }
-    }
-
-    if (botResponse) {
-      ticket.messages.push({
-        sender: 'bot',
-        text: botResponse,
-        timestamp: new Date()
-      });
-    } else {
-      // Fallback generic message only if AI also fails
-      ticket.messages.push({
-        sender: 'bot',
-        text: `Ticket #${ticket._id.toString().slice(-6)} created. I've notified our support team.`,
-        timestamp: new Date()
-      });
-    }
-
-    await ticket.save();
-
-    return c.json({ success: true, data: ticket });
+    const response = await aiService.chat(message);
+    return c.json({ success: true, data: { response } });
   } catch (err) {
-    console.error('Create Ticket Error:', err);
-    return c.json({ success: false, error: 'Failed to create ticket' }, 500);
+    return c.json({ success: false, error: 'Lali is sleeping' }, 500);
   }
 });
 
-// Get Vendor Tickets
-app.get('/api/chat/vendor', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-
+// Admin Ingest Routes
+app.post('/api/admin/lali/train/web', async (c) => {
   try {
-    const token = authHeader.split(' ')[1];
-    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
-    const vendorId = decoded.id;
-
-    const tickets = await Ticket.find({ vendorId }).sort({ lastMessageAt: -1 });
-    return c.json({ success: true, data: tickets });
+    const { url } = await c.req.json();
+    await aiService.ingestWeb(url);
+    return c.json({ success: true, message: 'Lali learned from website!' });
   } catch (err) {
-    return c.json({ success: false, error: 'Failed to fetch tickets' }, 500);
-  }
-});
-
-// Get Admin Tickets (All)
-app.get('/api/chat/admin', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-
-  try {
-    // Verify admin token (assuming similar secret for simplicity, or check logic)
-    const token = authHeader.split(' ')[1];
-    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
-
-    // Populate vendor details
-    const tickets = await Ticket.find({})
-      .populate('vendorId', 'businessName fullName email')
-      .sort({ lastMessageAt: -1 });
-
-    return c.json({ success: true, data: tickets });
-  } catch (err) {
-    return c.json({ success: false, error: 'Failed to fetch tickets' }, 500);
-  }
-});
-
-// Get Single Ticket
-app.get('/api/chat/:id', async (c) => {
-  const ticketId = c.req.param('id');
-  try {
-    const ticket = await Ticket.findById(ticketId).populate('vendorId', 'businessName fullName');
-    if (!ticket) return c.json({ success: false, error: 'Ticket not found' }, 404);
-    return c.json({ success: true, data: ticket });
-  } catch (err) {
-    return c.json({ success: false, error: 'Error fetching ticket' }, 500);
-  }
-});
-
-// Send Message (Vendor or Admin)
-app.post('/api/chat/:id/message', async (c) => {
-  const ticketId = c.req.param('id');
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-
-  try {
-    const { text, sender } = await c.req.json(); // sender: 'vendor' or 'admin'
-    const ticket = await Ticket.findById(ticketId);
-    if (!ticket) return c.json({ success: false, error: 'Ticket not found' }, 404);
-
-    ticket.messages.push({
-      sender,
-      text,
-      timestamp: new Date()
-    });
-    ticket.lastMessageAt = new Date();
-
-    // If vendor replies, maybe reopen if resolved?
-    if (sender === 'vendor' && ticket.status === 'resolved') {
-      ticket.status = 'open';
-    }
-
-    // Auto-reply for vendor messages
-    if (sender === 'vendor') {
-      let botResponse = await botService.processMessage(text);
-
-      if (!botResponse) {
-        try {
-          botResponse = await aiService.chat(text);
-        } catch (e) {
-          console.error('AI Chat Error:', e);
-        }
-      }
-
-      if (botResponse) {
-        ticket.messages.push({
-          sender: 'bot',
-          text: botResponse,
-          timestamp: new Date()
-        });
-      }
-    }
-
-    await ticket.save();
-    return c.json({ success: true, data: ticket });
-  } catch (err) {
-    return c.json({ success: false, error: 'Failed to send message' }, 500);
-  }
-});
-
-// Guest Chat Endpoint
-app.post('/api/chat/guest', async (c) => {
-  try {
-    const { text } = await c.req.json();
-    if (!text) return c.json({ success: false, error: 'Text required' }, 400);
-
-    const botResponse = await botService.processMessage(text);
-    return c.json({
-      success: true,
-      data: {
-        response: botResponse || "I'm sorry, I couldn't understand that. Please sign up to talk to a human agent."
-      }
-    });
-  } catch (err) {
-    return c.json({ success: false, error: 'Guest chat failed' }, 500);
+    return c.json({ success: false, error: 'Training failed' }, 500);
   }
 });
 
@@ -1688,6 +1870,13 @@ app.put('/api/settings', async (c) => {
       if (body.supportWhatsapp !== undefined) settings.supportWhatsapp = body.supportWhatsapp;
       if (body.growthFeeAmount !== undefined) settings.growthFeeAmount = body.growthFeeAmount;
       if (body.growthFeePeriod !== undefined) settings.growthFeePeriod = body.growthFeePeriod;
+
+      // Update Cities
+      if (body.cities !== undefined) settings.cities = body.cities;
+
+      // Update Theme
+      if (body.cardTheme !== undefined) settings.cardTheme = body.cardTheme;
+
       await settings.save();
     }
 
@@ -1734,7 +1923,6 @@ import { aiService } from './services/AIService.js';
 
 // --- Booking Routes ---
 
-import { Booking } from './models/Booking.js';
 import { Enquiry } from './models/Enquiry.js';
 
 // Create Booking (Client)
@@ -1894,64 +2082,7 @@ app.get('/api/admin/enquiries', async (c) => {
 });
 
 
-// --- Bot Training & OCR Routes ---
-
-// Get Training Data
-app.get('/api/admin/bot/knowledge', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-  try {
-    const audience = c.req.query('audience');
-    const query: any = {};
-    if (audience && audience !== 'all') {
-      query.targetAudience = audience;
-    }
-    const knowledge = await BotKnowledge.find(query).sort({ createdAt: -1 });
-    return c.json({ success: true, data: knowledge });
-  } catch (err) {
-    return c.json({ success: false, error: 'Failed to fetch knowledge' }, 500);
-  }
-});
-
-// Add Text Training Data
-app.post('/api/admin/bot/train', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-
-  try {
-    const { question, answer, targetAudience } = await c.req.json();
-    if (!question || !answer) return c.json({ success: false, error: 'Question and answer required' }, 400);
-
-    const newItem = await botService.addKnowledge(question, answer, targetAudience || 'general');
-
-    // Trigger retrain (async)
-    botService.retrain();
-
-    return c.json({ success: true, data: newItem });
-  } catch (err) {
-    return c.json({ success: false, error: 'Failed to add training data' }, 500);
-  }
-});
-
-// Delete Knowledge Item
-app.delete('/api/admin/bot/knowledge/:id', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
-
-  const id = c.req.param('id');
-
-  try {
-    const token = authHeader.split(' ')[1];
-    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
-
-    await BotKnowledge.findByIdAndDelete(id);
-    // Trigger retrain
-    botService.retrain();
-    return c.json({ success: true, message: 'Deleted successfully' });
-  } catch (err) {
-    return c.json({ success: false, error: 'Failed to delete knowledge' }, 500);
-  }
-});
+// Bot Routes Removed
 
 // OCR Route (Image -> Text)
 app.post('/api/admin/bot/ocr', async (c) => {
@@ -2076,5 +2207,543 @@ app.put('/api/admin/vendors/:id', async (c) => {
     return c.json({ success: false, error: 'Failed to update vendor' }, 500);
   }
 });
+
+// --- Utsav Feed Endpoints ---
+
+const detectContactInfo = (text: string) => {
+  // Regex for phone numbers (Indian and general)
+  const phoneRegex = /(\+?\d{1,4}[\s-]?)?(\(?\d{3}\)?[\s-]?)?[\d\s-]{7,15}/g;
+  // Regex for emails
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+
+  const matches = [...(text.match(phoneRegex) || []), ...(text.match(emailRegex) || [])];
+  // Filter out short numbers that might not be phones
+  return matches.filter(m => m.replace(/[\s-]/g, '').length >= 10 || m.includes('@'));
+};
+
+// List Approved Feed
+app.get('/api/feed', async (c) => {
+  try {
+    const posts = await FeedPost.find({ status: 'approved' })
+      .populate('authorId', 'businessName fullName displayName logo photoURL')
+      .sort({ createdAt: -1 })
+      .limit(50);
+    return c.json({ success: true, data: posts });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to fetch feed' }, 500);
+  }
+});
+
+// Create Post
+app.post('/api/feed', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Authorization required' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const authorId = decoded.id;
+
+    // Determine author type
+    const isVendor = await Vendor.exists({ _id: authorId });
+    const authorModel = isVendor ? 'Vendor' : 'Client';
+
+    const body = await c.req.json();
+    const { mediaUrl, type, caption } = body;
+
+    if (!mediaUrl) return c.json({ success: false, error: 'Media URL is required' }, 400);
+
+    const contactMatches = detectContactInfo(caption || '');
+    const status = contactMatches.length > 0 ? 'flagged' : 'pending';
+    const flaggedFor = contactMatches.length > 0 ? 'sharing_contact_info' : undefined;
+
+    const post = await FeedPost.create({
+      authorId,
+      authorModel,
+      mediaUrl,
+      type: type || 'image',
+      caption,
+      status,
+      flaggedFor
+    });
+
+    return c.json({ success: true, data: post, message: status === 'flagged' ? 'Post flagged for moderation due to contact info.' : 'Post submitted for review.' });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to create post' }, 500);
+  }
+});
+
+// Admin Moderation List
+app.get('/api/admin/feed/moderation', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const posts = await FeedPost.find({ status: { $in: ['pending', 'flagged'] } })
+      .populate('authorId', 'businessName fullName email')
+      .sort({ createdAt: 1 });
+    return c.json({ success: true, data: posts });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to fetch moderation queue' }, 500);
+  }
+});
+
+// Admin Update Status
+app.put('/api/admin/feed/:id/status', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'No token provided' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const postId = c.req.param('id');
+    const { status, moderationNotes } = await c.req.json();
+
+    const post = await FeedPost.findByIdAndUpdate(postId, {
+      $set: { status, moderationNotes, updatedAt: new Date() }
+    }, { new: true });
+
+    if (!post) return c.json({ success: false, error: 'Post not found' }, 404);
+
+    return c.json({ success: true, data: post });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed to update post status' }, 500);
+  }
+});
+
+// --- End Feed Endpoints ---
+
+// ===========================================
+// VENDOR PACKAGE ROUTES
+// ===========================================
+
+// Get all packages for a specific vendor (Public)
+app.get('/api/vendors/:vendorId/packages', async (c) => {
+  try {
+    const { vendorId } = c.req.param();
+    const activeOnly = c.req.query('activeOnly');
+    const query: any = { vendorId };
+    if (activeOnly === 'true') query.isActive = true;
+    const packages = await VendorPackage.find(query).sort({ price: 1 });
+    return c.json({ success: true, data: packages });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to fetch packages' }, 500);
+  }
+});
+
+// Get vendor's own packages (Vendor Auth)
+app.get('/api/vendor/packages', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const packages = await VendorPackage.find({ vendorId: decoded.id }).sort({ createdAt: -1 });
+    return c.json({ success: true, data: packages });
+  } catch (error) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+});
+
+app.post('/api/vendor/packages', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const body = await c.req.json();
+    const newPackage = await VendorPackage.create({ ...body, vendorId: decoded.id });
+    return c.json({ success: true, data: newPackage }, 201);
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to create package' }, 500);
+  }
+});
+
+app.put('/api/vendor/packages/:id', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const { id } = c.req.param();
+    const body = await c.req.json();
+    const existingPackage = await VendorPackage.findOne({ _id: id, vendorId: decoded.id });
+    if (!existingPackage) return c.json({ success: false, message: 'Package not found' }, 404);
+    const updated = await VendorPackage.findByIdAndUpdate(id, { ...body, updatedAt: new Date() }, { new: true });
+    return c.json({ success: true, data: updated });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to update' }, 500);
+  }
+});
+
+app.delete('/api/vendor/packages/:id', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const { id } = c.req.param();
+    const deleted = await VendorPackage.findOneAndDelete({ _id: id, vendorId: decoded.id });
+    if (!deleted) return c.json({ success: false, message: 'Not found' }, 404);
+    return c.json({ success: true, message: 'Deleted' });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed' }, 500);
+  }
+});
+
+app.patch('/api/vendor/packages/:id/toggle', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const { id } = c.req.param();
+    const pkg = await VendorPackage.findOne({ _id: id, vendorId: decoded.id });
+    if (!pkg) return c.json({ success: false, message: 'Not found' }, 404);
+    pkg.isActive = !pkg.isActive;
+    await pkg.save();
+    return c.json({ success: true, data: pkg });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed' }, 500);
+  }
+});
+
+// ===========================================
+// BOOKING ROUTES
+// ===========================================
+
+app.post('/api/bookings', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const body = await c.req.json();
+    const pkg = await VendorPackage.findById(body.packageId);
+    if (!pkg) return c.json({ success: false, message: 'Package not found' }, 404);
+    const advancePayment = Math.round(pkg.price * 0.2);
+    const booking = await Booking.create({
+      ...body,
+      clientId: decoded.id,
+      packagePrice: pkg.price,
+      advancePayment,
+      balancePayment: pkg.price - advancePayment,
+      totalPaid: 0,
+      status: 'pending',
+      paymentStatus: 'unpaid',
+      createdBy: 'client',
+    });
+    return c.json({ success: true, data: booking }, 201);
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to create' }, 500);
+  }
+});
+
+app.get('/api/bookings/my', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const bookings = await Booking.find({ clientId: decoded.id })
+      .populate('vendorId', 'businessName vendorType city')
+      .populate('packageId', 'packageName')
+      .sort({ createdAt: -1 });
+    return c.json({ success: true, data: bookings });
+  } catch (error) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+});
+
+app.get('/api/vendor/bookings', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    const decoded: any = await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const status = c.req.query('status');
+    const query: any = { vendorId: decoded.id };
+    if (status) query.status = status;
+    const bookings = await Booking.find(query)
+      .populate('clientId', 'displayName email phone')
+      .populate('packageId', 'packageName price')
+      .sort({ eventDate: 1 });
+    return c.json({ success: true, data: bookings });
+  } catch (error) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+});
+
+app.patch('/api/bookings/:id/status', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const { id } = c.req.param();
+    const { status, cancelReason } = await c.req.json();
+    const booking = await Booking.findById(id);
+    if (!booking) return c.json({ success: false, message: 'Not found' }, 404);
+    booking.status = status;
+    if (!booking.timeline) booking.timeline = {} as any; // Ensure timeline exists
+    if (status === 'confirmed') booking.timeline.confirmedAt = new Date();
+    if (status === 'cancelled') { booking.timeline.cancelledAt = new Date(); if (cancelReason) booking.cancelReason = cancelReason; }
+    await booking.save();
+    return c.json({ success: true, data: booking });
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed' }, 500);
+  }
+});
+
+app.get('/api/admin/bookings', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const query: any = {};
+    if (c.req.query('status')) query.status = c.req.query('status');
+    if (c.req.query('paymentStatus')) query.paymentStatus = c.req.query('paymentStatus');
+    if (c.req.query('vendorId')) query.vendorId = c.req.query('vendorId');
+    const bookings = await Booking.find(query)
+      .populate('clientId', 'displayName email phone')
+      .populate('vendorId', 'businessName vendorType city')
+      .populate('packageId', 'packageName price')
+      .sort({ createdAt: -1 });
+    return c.json({ success: true, data: bookings });
+  } catch (error) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+});
+
+app.post('/api/admin/bookings', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader) return c.json({ success: false, message: 'No token' }, 401);
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+    const body = await c.req.json();
+    const booking = await Booking.create({ ...body, createdBy: 'admin' });
+    return c.json({ success: true, data: booking }, 201);
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed' }, 500);
+  }
+});
+// --- General Admin Upload Route ---
+import { Readable } from 'stream';
+
+app.post('/api/admin/upload', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+  try {
+    const token = authHeader.split(' ')[1];
+    await verify(token, process.env.JWT_SECRET || 'secret', 'HS256');
+
+    const body = await c.req.parseBody();
+    console.log('DEBUG: Body Keys:', Object.keys(body));
+
+    // Check if 'image' exists
+    const fileArg = body['image'];
+    console.log('DEBUG: Image field type:', typeof fileArg);
+    if (fileArg && typeof fileArg === 'object') {
+      console.log('DEBUG: Image field keys:', Object.keys(fileArg));
+    }
+
+    // Handle potential array of files
+    const file = Array.isArray(fileArg) ? fileArg[0] : fileArg;
+
+    // Robust check for file-like object (Hono/Node compat)
+    // Check for arrayBuffer function to support File-like objects
+    const hasArrayBuffer = file && typeof file === 'object' && typeof (file as any).arrayBuffer === 'function';
+
+    if (!hasArrayBuffer) {
+      console.error('Upload Error: Received object is not a file with arrayBuffer()');
+      return c.json({ success: false, error: 'Invalid file received' }, 400);
+    }
+
+    // Safe cast
+    const fileObj = file as any; // Cast to any to avoid TS issues with File type mismatches
+    let buffer: Buffer;
+
+    try {
+      const ab = await fileObj.arrayBuffer();
+      buffer = Buffer.from(ab);
+    } catch (err) {
+      console.error('Error reading file buffer:', err);
+      return c.json({ success: false, error: 'Failed to read file data' }, 400);
+    }
+
+    console.log('DEBUG: Buffer created, size:', buffer.length);
+
+    // Upload to Cloudinary via stream
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: 'gomandap/admin_uploads' },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+
+      const readable = new Readable();
+      readable._read = () => { }; // _read is required but you can noop it
+      readable.push(buffer);
+      readable.push(null);
+
+      readable.pipe(uploadStream);
+    });
+
+    return c.json({ success: true, data: result });
+
+  } catch (error: any) {
+    console.error('Upload Error:', error);
+    return c.json({ success: false, error: error.message || 'Upload failed' }, 500);
+  }
+});
+
+// --- Announcement Card Routes ---
+
+app.get('/api/announcement-cards', async (c) => {
+  try {
+    const now = new Date();
+    const cards = await AnnouncementCard.find({
+      isActive: true,
+      $or: [
+        { startDate: null, endDate: null },
+        { startDate: { $lte: now }, endDate: null },
+        { startDate: null, endDate: { $gte: now } },
+        { startDate: { $lte: now }, endDate: { $gte: now } },
+      ],
+    }).sort({ displayOrder: 1 }).select('-__v');
+    return c.json({ success: true, data: cards });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed' }, 500);
+  }
+});
+
+// --- Popular Cities Routes ---
+
+app.get('/api/popular-cities', async (c) => {
+  try {
+    const cities = await PopularCity.find({ isActive: true })
+      .sort({ displayOrder: 1, city: 1 })
+      .select('city');
+    return c.json({ success: true, data: cities });
+  } catch (err) {
+    return c.json({ success: false, error: 'Failed' }, 500);
+  }
+});
+
+// Admin Routes for CMS
+app.get('/api/admin/announcement-cards', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const cards = await AnnouncementCard.find().sort({ displayOrder: 1 });
+    return c.json({ success: true, data: cards });
+  } catch (e) { return c.json({ success: false }, 500); }
+});
+
+app.post('/api/admin/announcement-cards', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const body = await c.req.json();
+    const card = await AnnouncementCard.create(body);
+    return c.json({ success: true, data: card });
+  } catch (e) {
+    console.error('Create Card Error:', e);
+    return c.json({ success: false }, 500);
+  }
+});
+
+app.put('/api/admin/announcement-cards/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const { id } = c.req.param();
+    const body = await c.req.json();
+    const card = await AnnouncementCard.findByIdAndUpdate(id, body, { new: true });
+    return c.json({ success: true, data: card });
+  } catch (e) {
+    console.error('Update Card Error:', e);
+    return c.json({ success: false }, 500);
+  }
+});
+
+app.delete('/api/admin/announcement-cards/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const { id } = c.req.param();
+    await AnnouncementCard.findByIdAndDelete(id);
+    return c.json({ success: true });
+  } catch (e) { return c.json({ success: false }, 500); }
+});
+
+// Popular Cities Admin
+app.get('/api/admin/popular-cities', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const cities = await PopularCity.find().sort({ displayOrder: 1 });
+    return c.json({ success: true, data: cities });
+  } catch (e) { return c.json({ success: false }, 500); }
+});
+
+app.post('/api/admin/popular-cities', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const body = await c.req.json();
+    const city = await PopularCity.create(body);
+    return c.json({ success: true, data: city });
+  } catch (e) { return c.json({ success: false }, 500); }
+});
+
+app.put('/api/admin/popular-cities/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const { id } = c.req.param();
+    const body = await c.req.json();
+    const city = await PopularCity.findByIdAndUpdate(id, body, { new: true });
+    return c.json({ success: true, data: city });
+  } catch (e) { return c.json({ success: false }, 500); }
+});
+
+app.delete('/api/admin/popular-cities/:id', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const { id } = c.req.param();
+    await PopularCity.findByIdAndDelete(id);
+    return c.json({ success: true });
+  } catch (e) { return c.json({ success: false }, 500); }
+});
+
+// Vendor Stats Routes
+import vendorStats from './routes/vendorStats.js';
+app.route('/api', vendorStats);
+
+// Portfolio routes
+app.route('/', portfolioRoutes);
+
+// Admin Revenue Routes
+import adminRevenueRoutes from './routes/adminRevenue.js';
+app.route('/', adminRevenueRoutes);
+
+// Vendor Calendar Routes
+import vendorCalendarRoutes from './routes/vendorCalendar.js';
+app.route('/api/vendor/calendar', vendorCalendarRoutes);
+
+// Vendor Search Routes
+import vendorSearchRoutes from './routes/vendorSearch.js';
+app.route('/api/vendors', vendorSearchRoutes);
 
 export default app;

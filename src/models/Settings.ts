@@ -37,7 +37,16 @@ const SettingsSchema = new mongoose.Schema({
     borderRadius: { type: String, default: 'lg' }, // sm, md, lg, full
     showPrice: { type: Boolean, default: true },
     showBadge: { type: Boolean, default: true }
-  }
+  },
+
+  // City Management (Quick Commerce)
+  cities: [{
+    name: { type: String, required: true },
+    slug: { type: String, required: true },
+    image: { type: String }, // Cloudinary URL
+    status: { type: String, enum: ['active', 'inactive'], default: 'active' },
+    isPopular: { type: Boolean, default: false }
+  }]
 }, {
   timestamps: true
 });

@@ -65,11 +65,19 @@ const VendorSchema = new mongoose.Schema({
     responseTime: { type: Number, default: 0 } // in minutes
   },
 
+  // Monetization & Growth
+  isSponsored: { type: Boolean, default: false, index: true }, // Top slot priority
+  promotedUntil: { type: Date }, // Expiry for sponsorship
+  subscriptionPlan: { type: String, enum: ['free', 'gold', 'platinum'], default: 'free' },
+  storyUrl: { type: String }, // 24h Story URL
+  storyExpiresAt: { type: Date },
+
   // Onboarding Status
   onboardingStep: { type: Number, default: 1 },
   onboardingCompleted: { type: Boolean, default: false },
   isVerified: { type: Boolean, default: false },
   priority: { type: Number, default: 0 }, // Admin priority score (higher = top of list)
+  fcmTokens: [{ type: String }], // For Push Notifications
 
   createdAt: { type: Date, default: Date.now }
 });

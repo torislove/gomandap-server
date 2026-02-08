@@ -24,6 +24,7 @@ const ClientSchema = new mongoose.Schema({
     }],
 
     favorites: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' }],
+    fcmTokens: [{ type: String }], // For Push Notifications
     createdAt: { type: Date, default: Date.now }
 });
 
