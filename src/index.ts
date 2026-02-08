@@ -171,6 +171,9 @@ app.use('/uploads/*', serveStatic({
   rewriteRequestPath: (p) => p.replace(/^\/uploads\//, 'uploads/')
 }));
 
+app.get('/', (c) => c.text('GoMandap Server Running!'));
+
+
 // Admin Routes
 app.post('/api/admin/login', async (c) => {
   const { username, password } = await c.req.json();
